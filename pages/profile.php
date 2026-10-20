@@ -1,8 +1,9 @@
 <?php
 $user = current_user();
 $profileQuery = database()->prepare(
-    'SELECT u.name, u.email, u.phone, u.profile_picture
+    'SELECT u.name, u.email, u.phone, u.profile_picture, COALESCE(t.index_code, s.index_code) AS index_code
      FROM users u LEFT JOIN teachers t ON t.user_id = u.id AND t.school_id = u.school_id
+     LEFT JOIN students s ON s.user_id = u.id AND s.school_id = u.school_id
      WHERE u.id = ? AND u.school_id = ?'
 );
 $profileQuery->execute([$user['id'], $user['school_id']]);
@@ -18,6 +19,16 @@ if ($user['role'] === 'admin') {
 }
 ?>
 <section class="page-heading"><div><span class="eyebrow"><?= e(t('ACCOUNT SETTINGS')) ?></span><h1><?= e(t('My profile')) ?></h1><p><?= e(t('Manage your personal details and sign-in password.')) ?></p></div></section>
+<section class="profile-card profile-card-self">
+    <div class="profile-card-header">
+        <?php if ($profile['profile_picture']): ?><img class="profile-card-avatar" src="<?= e($profile['profile_picture']) ?>" alt="<?= e(t('Profile picture')) ?>"><?php else: ?><span class="profile-card-avatar profile-card-initial"><?= e(strtoupper(substr($profile['name'], 0, 1))) ?></span><?php endif; ?>
+        <div class="profile-card-identity"><span class="eyebrow"><?= e(role_label($user['role'])) ?></span><h2><?= e($profile['name']) ?></h2><span><?= e($profile['email']) ?></span></div>
+    </div>
+    <div class="profile-card-details">
+        <div><small><?= e(t('Phone number')) ?></small><strong><?= e($profile['phone'] ?: '—') ?></strong></div>
+        <?php if ($profile['index_code']): ?><div><small><?= e(t('INDEX CODE')) ?></small><strong><?= e($profile['index_code']) ?></strong></div><?php endif; ?>
+    </div>
+</section>
 <section class="panel form-panel profile-panel">
     <div class="panel-heading"><div><h2><?= e(t('Personal details')) ?></h2><p><?= e(t('Keep your account information up to date.')) ?></p></div>
         <?php if ($profile['profile_picture']): ?><img class="profile-preview" src="<?= e($profile['profile_picture']) ?>" alt="<?= e(t('Profile picture')) ?>"><?php else: ?><span class="profile-preview profile-initial"><?= e(strtoupper(substr($profile['name'], 0, 1))) ?></span><?php endif; ?>

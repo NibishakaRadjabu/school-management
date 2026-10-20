@@ -63,8 +63,21 @@ $studentsWithoutAccounts = array_filter($students, static fn(array $student): bo
         <form method="get" class="search-form"><input type="hidden" name="page" value="students"><input type="hidden" name="lang" value="<?= e(current_language()) ?>"><label class="visually-hidden" for="student-search"><?= e(t('Search students')) ?></label><input id="student-search" name="q" value="<?= e($search) ?>" placeholder="<?= e(t('Search name or admission no.')) ?>"><button type="submit" aria-label="<?= e(t('Search')) ?>">⌕</button></form>
     </div>
     <?php if ($students === []): ?><div class="empty-state compact"><span class="empty-icon">♧</span><p><?= e(t($search !== '' ? 'No students match that search.' : 'Your student register is empty. Add a student above to get started.')) ?></p></div><?php else: ?>
-        <div class="table-wrap"><table><thead><tr><th><?= e(t('STUDENT')) ?></th><th><?= e(t('ADMISSION NO.')) ?></th><th><?= e(t('INDEX CODE')) ?></th><th><?= e(t('CLASS')) ?></th><th><?= e(t('PARENT / GUARDIAN')) ?></th><th><?= e(t('ENROLLED')) ?></th><th><?= e(t('STATUS')) ?></th><th></th></tr></thead><tbody>
-        <?php foreach ($students as $student): ?><tr><td><span class="student-cell"><span class="table-avatar"><?= e(strtoupper(substr($student['first_name'], 0, 1))) ?></span><strong><?= e($student['first_name'] . ' ' . $student['last_name']) ?></strong></span></td><td><?= e($student['admission_number']) ?></td><td><?= e($student['index_code']) ?></td><td><?= e($student['class_name'] ?? t('Unassigned')) ?></td><td><?php if ($student['guardian_name']): ?><span class="cell-primary"><?= e($student['guardian_name']) ?></span><small class="cell-secondary"><?= e($student['guardian_phone'] ?? '') ?></small><?php else: ?>—<?php endif; ?></td><td><?= e(localized_date($student['enrollment_date'])) ?></td><td><span class="status-pill status-<?= e($student['status']) ?>"><?= e(t(ucfirst($student['status']))) ?></span></td><td><?php if (can_access_page('academics')): ?><a class="text-link" href="report_card.php?student_id=<?= (int) $student['id'] ?>"><?= e(t('Report card')) ?></a><?php endif; ?></td></tr><?php endforeach; ?>
-        </tbody></table></div>
+        <div class="profile-card-grid">
+            <?php foreach ($students as $student): ?><article class="profile-card">
+                <div class="profile-card-header">
+                    <span class="profile-card-avatar profile-card-initial"><?= e(strtoupper(substr($student['first_name'], 0, 1))) ?></span>
+                    <div class="profile-card-identity"><span class="eyebrow"><?= e(t('Student')) ?></span><h3><?= e($student['first_name'] . ' ' . $student['last_name']) ?></h3><span><?= e(t('Admission number')) ?> · <?= e($student['admission_number']) ?></span></div>
+                    <span class="status-pill status-<?= e($student['status']) ?>"><?= e(t(ucfirst($student['status']))) ?></span>
+                </div>
+                <div class="profile-card-details">
+                    <div><small><?= e(t('INDEX CODE')) ?></small><strong><?= e($student['index_code']) ?></strong></div>
+                    <div><small><?= e(t('Class')) ?></small><strong><?= e($student['class_name'] ?? t('Unassigned')) ?></strong></div>
+                    <div><small><?= e(t('Enrollment date')) ?></small><strong><?= e(localized_date($student['enrollment_date'])) ?></strong></div>
+                    <div><small><?= e(t('Parent or guardian')) ?></small><strong><?= e($student['guardian_name'] ?? '—') ?></strong><?php if ($student['guardian_phone']): ?><span><?= e($student['guardian_phone']) ?></span><?php endif; ?></div>
+                </div>
+                <?php if (can_access_page('academics')): ?><div class="profile-card-actions"><a class="text-link" href="report_card.php?student_id=<?= (int) $student['id'] ?>"><?= e(t('Report card')) ?> →</a></div><?php endif; ?>
+            </article><?php endforeach; ?>
+        </div>
     <?php endif; ?>
 </section>

@@ -95,8 +95,25 @@ foreach ($staff as $member) {
 <section class="panel recent-panel">
     <div class="panel-heading"><div><h2><?= e(t('Staff directory')) ?></h2><p><?= count($staff) ?> <?= e(t('team members')) ?></p></div></div>
     <?php if ($staff === []): ?><div class="empty-state compact"><span class="empty-icon">♙</span><p><?= e(t('Your staff directory is empty. Add your first team member above.')) ?></p></div><?php else: ?>
-        <div class="table-wrap"><table><thead><tr><th><?= e(t('TEAM MEMBER')) ?></th><th><?= e(t('EMPLOYEE NO.')) ?></th><th><?= e(t('INDEX CODE')) ?></th><th><?= e(t('Staff role')) ?></th><th><?= e(t('CONTACT')) ?></th><th><?= e(t('Account')) ?></th><th><?= e(t('STATUS')) ?></th><th><?= e(t('Actions')) ?></th></tr></thead><tbody>
-        <?php foreach ($staff as $member): ?><tr><td><span class="student-cell"><?php if ($member['profile_picture']): ?><img class="table-avatar" src="<?= e($member['profile_picture']) ?>" alt=""><?php else: ?><span class="table-avatar avatar-violet"><?= e(strtoupper(substr($member['name'], 0, 1))) ?></span><?php endif; ?><strong><?= e($member['name']) ?></strong></span></td><td><?= e($member['employee_number']) ?></td><td><?= e($member['index_code']) ?></td><td><?= e($member['role_name'] ? t($staffRoles[$member['role_name']] ?? $member['role_name']) : ($member['job_title'] ?? '—')) ?></td><td><span class="cell-primary"><?= e($member['email'] ?? '—') ?></span><small class="cell-secondary"><?= e($member['phone'] ?? '') ?></small></td><td><?php if ($member['user_id'] !== null): ?><span class="status-pill status-active"><?= e(t('Account ready')) ?></span><?php else: ?><a class="text-link" href="#create-account"><?= e(t('Create account')) ?></a><?php endif; ?></td><td><span class="status-pill status-<?= e($member['status']) ?>"><?= e(t(ucfirst($member['status']))) ?></span></td><td><div class="table-actions"><a class="text-link" href="index.php?page=teachers&amp;edit_staff=<?= (int) $member['id'] ?>#edit-staff"><?= e(t('Edit')) ?></a><form method="post" action="index.php?page=teachers" onsubmit="return confirm(<?= e(json_encode(t('Delete this staff member? Their sign-in account will also be deleted if linked.'))) ?>)"><input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>"><input type="hidden" name="action" value="delete_teacher"><input type="hidden" name="teacher_id" value="<?= (int) $member['id'] ?>"><button class="text-button text-danger" type="submit"><?= e(t('Delete')) ?></button></form></div></td></tr><?php endforeach; ?>
-        </tbody></table></div>
+        <div class="profile-card-grid">
+            <?php foreach ($staff as $member): ?><article class="profile-card">
+                <div class="profile-card-header">
+                    <?php if ($member['profile_picture']): ?><img class="profile-card-avatar" src="<?= e($member['profile_picture']) ?>" alt="<?= e(t('Profile picture')) ?>"><?php else: ?><span class="profile-card-avatar profile-card-initial"><?= e(strtoupper(substr($member['name'], 0, 1))) ?></span><?php endif; ?>
+                    <div class="profile-card-identity"><span class="eyebrow"><?= e(t('Staff role')) ?></span><h3><?= e($member['name']) ?></h3><span><?= e($member['role_name'] ? t($staffRoles[$member['role_name']] ?? $member['role_name']) : ($member['job_title'] ?? '—')) ?></span></div>
+                    <span class="status-pill status-<?= e($member['status']) ?>"><?= e(t(ucfirst($member['status']))) ?></span>
+                </div>
+                <div class="profile-card-details">
+                    <div><small><?= e(t('INDEX CODE')) ?></small><strong><?= e($member['index_code']) ?></strong></div>
+                    <div><small><?= e(t('Employee number')) ?></small><strong><?= e($member['employee_number']) ?></strong></div>
+                    <div><small><?= e(t('Login email')) ?></small><strong><?= e($member['email'] ?? '—') ?></strong></div>
+                    <div><small><?= e(t('Phone number')) ?></small><strong><?= e($member['phone'] ?? '—') ?></strong></div>
+                </div>
+                <div class="profile-card-actions">
+                    <?php if ($member['user_id'] !== null): ?><span class="status-pill status-active"><?= e(t('Account ready')) ?></span><?php else: ?><a class="text-link" href="#create-account"><?= e(t('Create account')) ?></a><?php endif; ?>
+                    <a class="text-link" href="index.php?page=teachers&amp;edit_staff=<?= (int) $member['id'] ?>#edit-staff"><?= e(t('Edit')) ?></a>
+                    <form method="post" action="index.php?page=teachers" onsubmit="return confirm(<?= e(json_encode(t('Delete this staff member? Their sign-in account will also be deleted if linked.'))) ?>)"><input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>"><input type="hidden" name="action" value="delete_teacher"><input type="hidden" name="teacher_id" value="<?= (int) $member['id'] ?>"><button class="text-button text-danger" type="submit"><?= e(t('Delete')) ?></button></form>
+                </div>
+            </article><?php endforeach; ?>
+        </div>
     <?php endif; ?>
 </section>

@@ -221,6 +221,24 @@ tbody td strong { color: #485062; font-size: 11px; font-weight: 600; }
 .team-number { margin: 27px 0 2px; color: #655bd0; font: 800 47px Manrope,sans-serif; letter-spacing: -2px; }
 .team-caption { color: #818a9a; font-size: 11px; }
 .team-note { margin-top: 26px; padding: 13px; border-radius: 8px; background: #f8f7ff; color: #858b9c; font-size: 11px; line-height: 1.7; }
+.profile-card-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,310px),1fr)); gap: 15px; }
+.profile-card { min-width: 0; padding: 19px; border: 1px solid #eceef3; border-radius: 11px; background: #fff; box-shadow: var(--shadow); }
+.profile-card-self { margin-bottom: 19px; padding: 24px; }
+.profile-card-header { display: flex; min-width: 0; align-items: center; gap: 13px; }
+.profile-card-avatar { display: grid; width: 58px; height: 58px; flex: 0 0 auto; place-items: center; border-radius: 50%; object-fit: cover; }
+.profile-card-initial { background: #e9e7ff; color: #655bd3; font: 700 20px Manrope,sans-serif; }
+.profile-card-identity { display: grid; min-width: 0; flex: 1; gap: 4px; }
+.profile-card-identity .eyebrow { font-size: 9px; }
+.profile-card-identity h2, .profile-card-identity h3 { overflow: hidden; margin: 0; color: #292e40; font: 700 16px Manrope,sans-serif; text-overflow: ellipsis; }
+.profile-card-identity h3 { font-size: 14px; }
+.profile-card-identity > span:last-child { overflow-wrap: anywhere; color: #8b93a2; font-size: 10px; }
+.profile-card-details { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 15px; margin-top: 18px; padding-top: 16px; border-top: 1px solid #eff0f4; }
+.profile-card-details > div { display: grid; min-width: 0; align-content: start; gap: 5px; }
+.profile-card-details small { color: #9ba2af; font-size: 9px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
+.profile-card-details strong, .profile-card-details > div > span { overflow-wrap: anywhere; color: #50586a; font-size: 11px; font-weight: 600; }
+.profile-card-details > div > span { color: #9299a7; font-size: 10px; font-weight: 400; }
+.profile-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; padding-top: 13px; border-top: 1px solid #eff0f4; }
+.profile-card-actions form { margin-left: auto; }
 .date-filter { display: flex; align-items: center; gap: 9px; }
 .date-filter label { color: #9299a7; font-size: 10px; }
 .date-filter input { width: 142px; min-height: 34px; }

@@ -63,8 +63,10 @@ CREATE TABLE IF NOT EXISTS classes (
 CREATE TABLE IF NOT EXISTS students (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     school_id BIGINT UNSIGNED NOT NULL,
+    user_id BIGINT UNSIGNED NULL,
     class_id BIGINT UNSIGNED NULL,
     admission_number VARCHAR(50) NOT NULL,
+    index_code VARCHAR(24) NOT NULL,
     first_name VARCHAR(80) NOT NULL,
     last_name VARCHAR(80) NOT NULL,
     date_of_birth DATE NULL,
@@ -73,9 +75,12 @@ CREATE TABLE IF NOT EXISTS students (
     status ENUM('active', 'inactive', 'graduated') NOT NULL DEFAULT 'active',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_students_admission (school_id, admission_number),
+    UNIQUE KEY uq_students_index_code (school_id, index_code),
+    UNIQUE KEY uq_students_user (user_id),
     KEY idx_students_name (school_id, last_name, first_name),
     CONSTRAINT fk_students_school FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE,
-    CONSTRAINT fk_students_class FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE SET NULL
+    CONSTRAINT fk_students_class FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE SET NULL,
+    CONSTRAINT fk_students_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS guardians (
@@ -103,6 +108,7 @@ CREATE TABLE IF NOT EXISTS teachers (
     school_id BIGINT UNSIGNED NOT NULL,
     user_id BIGINT UNSIGNED NULL,
     employee_number VARCHAR(50) NOT NULL,
+    index_code VARCHAR(24) NOT NULL,
     name VARCHAR(150) NOT NULL,
     email VARCHAR(190) NULL,
     phone VARCHAR(40) NULL,
@@ -110,6 +116,7 @@ CREATE TABLE IF NOT EXISTS teachers (
     status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_teachers_employee (school_id, employee_number),
+    UNIQUE KEY uq_teachers_index_code (school_id, index_code),
     CONSTRAINT fk_teachers_school FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE,
     CONSTRAINT fk_teachers_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;

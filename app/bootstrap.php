@@ -227,6 +227,7 @@ function role_pages(string $role): array
         'accountant' => ['dashboard', 'fees', 'profile'],
         'dos', 'head_of_studies' => ['dashboard', 'students', 'classes', 'academics', 'attendance', 'profile'],
         'behavior_officer' => ['dashboard', 'students', 'attendance', 'communications', 'profile'],
+        'student' => ['profile'],
         default => ['dashboard'],
     };
 }
@@ -271,6 +272,24 @@ function current_user(): array
         'school_name' => (string) $_SESSION['school_name'],
         'profile_picture' => (string) ($_SESSION['profile_picture'] ?? ''),
     ];
+}
+
+function generate_index_code(PDO $pdo, string $entity, int $schoolId): string
+{
+    $table = match ($entity) {
+        'student' => ['students', 'STU'],
+        'staff' => ['teachers', 'STF'],
+        default => throw new InvalidArgumentException('Unsupported index code entity.'),
+    };
+    [$tableName, $prefix] = $table;
+    $lookup = $pdo->prepare("SELECT 1 FROM {$tableName} WHERE school_id = ? AND index_code = ? LIMIT 1");
+
+    do {
+        $code = $prefix . '-' . strtoupper(bin2hex(random_bytes(6)));
+        $lookup->execute([$schoolId, $code]);
+    } while ($lookup->fetchColumn());
+
+    return $code;
 }
 
 function save_profile_picture(array $file): ?string

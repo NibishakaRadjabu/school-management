@@ -16,7 +16,7 @@ A framework-free PHP and MySQL starter for nursery, primary, and secondary schoo
 4. If your MySQL connection differs from the defaults, set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` in the PHP/Apache environment before starting Apache. Defaults are `127.0.0.1`, `3306`, `school_management`, `root`, and an empty password. `DB_PORT` should match the MySQL port shown in XAMPP.
 5. Visit `http://localhost/school%20management/`. With an empty database the school registration page appears. Register the school and first administrator to enter the dashboard.
 
-For an existing installation, import `migrations/001_staff_profiles_and_password_resets.sql` once in phpMyAdmin before using staff profile pictures or password recovery. Back up the database first. The migration preserves announcements when a staff author is deleted. New installations receive these tables and columns through `schema.sql`.
+For an existing installation, import `migrations/001_staff_profiles_and_password_resets.sql` if it has not already been applied, then import `migrations/002_student_staff_index_codes.sql`. Back up the database first. The migrations preserve announcements when a staff author is deleted and assign index codes to existing student and staff records. New installations receive the required structure through `schema.sql`.
 
 The first setup inserts the Nursery, Primary, and Secondary sections. Use **Classes** to add class groups; create custom sections there as well.
 
@@ -32,9 +32,13 @@ Use the language selector in the page header or on the sign-in/setup screen to s
 - Fee invoicing, payment recording, and outstanding balance tracking.
 - School announcements, guardian contact selection, and a notification outbox for SMS, email, and mobile-app channels.
 - Individual staff sign-in accounts for teachers, accountants, Directors of Studies, Heads of Studies, and behavior officers. Each account has a role-specific workspace access policy; school administrators create the account email and initial password.
+- Student registration creates a restricted sign-in account and automatically assigns an index code; staff profiles also receive an automatically generated index code. The code can identify an account during password recovery, but reset instructions are sent only to that account's registered email address.
+- Administrators can provision sign-in accounts for existing students who were imported before this feature; their migration-generated index codes then work for email-verified recovery as well.
 - Administrators can add another administrator account from the staff directory. An administrator can delete their own account in **My profile** only after re-entering their password and only if another active administrator remains, so the school is not left without an administrator.
 - Staff administrators can edit or delete staff records, update staff roles and sign-in details, disable access, and reset a staff password. Staff can edit their own name, email, phone, profile picture, and password from **My profile**. Profile photos accept JPG, PNG, or WebP up to 3 MB.
-- Forgotten-password links are single-use and expire after one hour. To enable email recovery, configure `APP_URL` to the base URL of this installation (for example, `http://localhost/school%20management` locally), `MAIL_FROM` to a valid sender address, and configure PHP's `mail()` transport (for XAMPP, configure its sendmail settings). Until email is configured, staff should contact an administrator, who can set a temporary password in the staff editor.
+- Forgotten-password links are single-use and expire after one hour. Users can enter their email or their student/staff index code to request recovery. A code alone never resets a password. To enable email recovery, configure `APP_URL` to the base URL of this installation (for example, `http://localhost/school%20management` locally), `MAIL_FROM` to a valid sender address, and configure PHP's `mail()` transport (for XAMPP, configure its sendmail settings). Until email is configured, staff should contact an administrator, who can set a temporary password in the staff editor.
+
+Student accounts can access only their own profile and account settings; student access to academic records is not currently provided.
 
 Staff account access is restricted by role: teachers can use students, attendance, and academics; accountants can use fee management; DOS and Heads of Studies can manage students, classes, attendance, and academics; behavior officers can use students, attendance, and communications. Administrators retain access to every module and the staff directory.
 
@@ -44,4 +48,4 @@ Announcements are stored and eligible guardian destinations are placed in the da
 
 ## Database
 
-`schema.sql` defines the school, user/role, password-reset, section/class, student/guardian, teacher, subject, exam/result, assignment, timetable, attendance, fee, announcement, and notification-outbox tables, with foreign keys, uniqueness constraints, and school ownership columns. The starter currently provisions one school per database. Keep a backup of the database and use HTTPS before using real student information.
+`schema.sql` defines the school, user/role, password-reset, section/class, student/guardian, teacher, subject, exam/result, assignment, timetable, attendance, fee, announcement, and notification-outbox tables, with foreign keys, uniqueness constraints, and school ownership columns. Student and staff index codes are unique within a school. The starter currently provisions one school per database. Keep a backup of the database and use HTTPS before using real student information.

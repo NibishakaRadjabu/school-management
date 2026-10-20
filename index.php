@@ -21,7 +21,7 @@ $pages = [
     'communications' => ['Communications', __DIR__ . '/pages/communications.php'],
     'profile' => ['My profile', __DIR__ . '/pages/profile.php'],
 ];
-$page = $_GET['page'] ?? 'dashboard';
+$page = $_GET['page'] ?? (($_SESSION['user_role'] ?? '') === 'student' ? 'profile' : 'dashboard');
 if (!is_string($page) || !isset($pages[$page])) {
     http_response_code(404);
     $page = 'dashboard';
@@ -39,6 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'create_section' => 'classes',
         'create_class' => 'classes',
         'create_student' => 'students',
+        'create_student_account' => 'students',
         'create_teacher' => 'teachers',
         'create_teacher_account' => 'teachers',
         'update_teacher' => 'teachers',
@@ -99,10 +100,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $firstName = trim((string) ($_POST['first_name'] ?? ''));
                 $lastName = trim((string) ($_POST['last_name'] ?? ''));
                 $admission = trim((string) ($_POST['admission_number'] ?? ''));
+                $email = trim((string) ($_POST['email'] ?? ''));
+                $password = (string) ($_POST['password'] ?? '');
                 $classId = (int) ($_POST['class_id'] ?? 0);
                 $enrollmentDate = (string) ($_POST['enrollment_date'] ?? '');
-                if ($firstName === '' || $lastName === '' || $admission === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $enrollmentDate)) {
-                    flash('Complete the required student details and choose a valid enrollment date.', 'error');
+                if ($firstName === '' || $lastName === '' || $admission === '' || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($password) < 10 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $enrollmentDate)) {
+                    flash('Complete the student details, enter a valid login email, and choose a password with at least 10 characters.', 'error');
                     break;
                 }
                 if ($classId > 0) {
@@ -119,15 +122,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     break;
                 }
                 $pdo->beginTransaction();
+                $studentRole = $pdo->prepare('INSERT INTO roles (name) VALUES (?) ON DUPLICATE KEY UPDATE name = VALUES(name)');
+                $studentRole->execute(['student']);
+                $roleQuery = $pdo->prepare('SELECT id FROM roles WHERE name = ?');
+                $roleQuery->execute(['student']);
+                $roleId = (int) $roleQuery->fetchColumn();
+                $account = $pdo->prepare('INSERT INTO users (school_id, role_id, name, email, password_hash) VALUES (?, ?, ?, ?, ?)');
+                $account->execute([$user['school_id'], $roleId, $firstName . ' ' . $lastName, $email, password_hash($password, PASSWORD_DEFAULT)]);
+                $studentUserId = (int) $pdo->lastInsertId();
+                $indexCode = generate_index_code($pdo, 'student', (int) $user['school_id']);
                 $insert = $pdo->prepare(
-                    'INSERT INTO students (school_id, class_id, admission_number, first_name, last_name, date_of_birth, gender, enrollment_date)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                    'INSERT INTO students (school_id, user_id, class_id, admission_number, index_code, first_name, last_name, date_of_birth, gender, enrollment_date)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
                 );
                 $birthDate = trim((string) ($_POST['date_of_birth'] ?? ''));
                 $insert->execute([
                     $user['school_id'],
+                    $studentUserId,
                     $classId ?: null,
                     $admission,
+                    $indexCode,
                     $firstName,
                     $lastName,
                     $birthDate !== '' ? $birthDate : null,
@@ -166,7 +180,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $link->execute([$studentId, $guardianId, trim((string) ($_POST['guardian_relationship'] ?? '')) ?: null]);
                 }
                 $pdo->commit();
-                flash('Student added to the register.');
+                flash(t('Student added to the register. Index code: {{code}}', ['{{code}}' => $indexCode]));
+                break;
+
+            case 'create_student_account':
+                require_admin();
+                $studentId = (int) ($_POST['student_id'] ?? 0);
+                $email = trim((string) ($_POST['email'] ?? ''));
+                $password = (string) ($_POST['password'] ?? '');
+                if ($studentId <= 0 || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($password) < 10) {
+                    flash('Choose a student, enter a valid login email, and use a password with at least 10 characters.', 'error');
+                    break;
+                }
+                $pdo->beginTransaction();
+                $studentQuery = $pdo->prepare('SELECT id, first_name, last_name FROM students WHERE id = ? AND school_id = ? AND user_id IS NULL FOR UPDATE');
+                $studentQuery->execute([$studentId, $user['school_id']]);
+                $student = $studentQuery->fetch();
+                if (!$student) {
+                    $pdo->rollBack();
+                    flash('That student already has an account or could not be found.', 'error');
+                    break;
+                }
+                $studentRole = $pdo->prepare('INSERT INTO roles (name) VALUES (?) ON DUPLICATE KEY UPDATE name = VALUES(name)');
+                $studentRole->execute(['student']);
+                $roleQuery = $pdo->prepare('SELECT id FROM roles WHERE name = ?');
+                $roleQuery->execute(['student']);
+                $roleId = (int) $roleQuery->fetchColumn();
+                $account = $pdo->prepare('INSERT INTO users (school_id, role_id, name, email, password_hash) VALUES (?, ?, ?, ?, ?)');
+                $account->execute([
+                    $user['school_id'],
+                    $roleId,
+                    $student['first_name'] . ' ' . $student['last_name'],
+                    $email,
+                    password_hash($password, PASSWORD_DEFAULT),
+                ]);
+                $studentUserId = (int) $pdo->lastInsertId();
+                $linkStudent = $pdo->prepare('UPDATE students SET user_id = ? WHERE id = ? AND school_id = ? AND user_id IS NULL');
+                $linkStudent->execute([$studentUserId, $studentId, $user['school_id']]);
+                if ($linkStudent->rowCount() !== 1) {
+                    $pdo->rollBack();
+                    flash('The student account could not be linked.', 'error');
+                    break;
+                }
+                $pdo->commit();
+                flash('Student sign-in account created.');
                 break;
 
             case 'create_teacher':
@@ -196,21 +253,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $account->execute([$user['school_id'], $roleId, $name, $email, $phone ?: null, password_hash($password, PASSWORD_DEFAULT), $newProfilePicture]);
                 $userId = (int) $pdo->lastInsertId();
                 $staff = $pdo->prepare(
-                    'INSERT INTO teachers (school_id, user_id, employee_number, name, email, phone, job_title)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)'
+                    'INSERT INTO teachers (school_id, user_id, employee_number, index_code, name, email, phone, job_title)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
                 );
                 $jobTitle = trim((string) ($_POST['job_title'] ?? ''));
+                $indexCode = generate_index_code($pdo, 'staff', (int) $user['school_id']);
                 $staff->execute([
                     $user['school_id'],
                     $userId,
                     $employeeNumber,
+                    $indexCode,
                     $name,
                     $email,
                     $phone ?: null,
                     $jobTitle ?: $role,
                 ]);
                 $pdo->commit();
-                flash('Staff member and sign-in account created.');
+                flash(t('Staff member and sign-in account created. Index code: {{code}}', ['{{code}}' => $indexCode]));
                 break;
 
             case 'create_teacher_account':

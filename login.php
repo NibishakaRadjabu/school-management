@@ -8,7 +8,7 @@ if (!school_is_registered()) {
     redirect('setup.php');
 }
 if (is_logged_in()) {
-    redirect('index.php');
+    redirect($user['role'] === 'student' ? 'index.php?page=profile' : 'index.php');
 }
 
 $error = '';

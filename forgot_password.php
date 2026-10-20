@@ -15,7 +15,7 @@ $submitted = false;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     $submitted = true;
-    $email = trim((string) ($_POST['email'] ?? ''));
+    $identifier = trim((string) ($_POST['identifier'] ?? ''));
     $baseUrl = rtrim((string) getenv('APP_URL'), '/');
     $from = (string) getenv('MAIL_FROM');
     $url = filter_var($baseUrl, FILTER_VALIDATE_URL);
@@ -29,11 +29,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         && !isset($urlParts['fragment'])
         && filter_var($from, FILTER_VALIDATE_EMAIL);
 
-    if (filter_var($email, FILTER_VALIDATE_EMAIL) && $mailConfigured) {
+    $isEmail = filter_var($identifier, FILTER_VALIDATE_EMAIL) !== false;
+    $isIndexCode = preg_match('/\A(?:STU|STF)-[A-F0-9]{12}\z/i', $identifier) === 1;
+    if (($isEmail || $isIndexCode) && $mailConfigured) {
         $pdo = database();
         $pdo->exec('DELETE FROM password_resets WHERE expires_at <= NOW()');
-        $find = $pdo->prepare('SELECT id, name FROM users WHERE email = ? AND is_active = 1 LIMIT 1');
-        $find->execute([$email]);
+        $find = $pdo->prepare(
+            'SELECT DISTINCT u.id, u.name, u.email FROM users u
+             LEFT JOIN teachers t ON t.user_id = u.id AND t.school_id = u.school_id
+             LEFT JOIN students s ON s.user_id = u.id AND s.school_id = u.school_id
+             WHERE u.is_active = 1 AND (u.email = ? OR t.index_code = ? OR s.index_code = ?) LIMIT 1'
+        );
+        $indexCode = $isIndexCode ? strtoupper($identifier) : '';
+        $find->execute([$isEmail ? $identifier : '', $indexCode, $indexCode]);
         $account = $find->fetch();
         if ($account) {
             $token = bin2hex(random_bytes(32));
@@ -50,12 +58,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 . $resetUrl . "\n\n"
                 . t('If you did not request a password reset, you can ignore this message.');
             $headers = "From: " . $from . "\r\nContent-Type: text/plain; charset=UTF-8";
-            if (!mail($email, $subject, $body, $headers)) {
+            if (!mail($account['email'], $subject, $body, $headers)) {
                 $pdo->prepare('DELETE FROM password_resets WHERE user_id = ?')->execute([$account['id']]);
                 error_log('Password reset email could not be sent for user id ' . (int) $account['id']);
             }
         }
-    } elseif ($email !== '') {
+    } elseif ($identifier !== '') {
         error_log('Password reset email is unavailable: configure valid APP_URL and MAIL_FROM values and PHP mail transport.');
     }
 }
@@ -66,13 +74,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body class="auth-body">
 <div class="auth-layout">
     <?php render_language_selector('language-picker auth-language'); ?>
-    <section class="auth-side"><a class="auth-brand" href="login.php"><span class="brand-mark">S<span>+</span></span><span><?= e(t('Schoolhouse')) ?></span></a><div class="auth-pitch"><span class="eyebrow light-eyebrow"><?= e(t('ACCOUNT RECOVERY')) ?></span><h1><?= e(t('Get back into your account.')) ?></h1><p><?= e(t('We’ll email a secure link if the address belongs to an active account.')) ?></p></div></section>
+    <section class="auth-side"><a class="auth-brand" href="login.php"><span class="brand-mark">S<span>+</span></span><span><?= e(t('Schoolhouse')) ?></span></a><div class="auth-pitch"><span class="eyebrow light-eyebrow"><?= e(t('ACCOUNT RECOVERY')) ?></span><h1><?= e(t('Get back into your account.')) ?></h1><p><?= e(t('We’ll send a secure link to the registered email if the account is active.')) ?> <?= e(t('Index codes identify accounts but do not reset passwords by themselves.')) ?></p></div></section>
     <main class="auth-main"><div class="auth-card login-card">
-        <div class="form-heading"><span class="step-label"><?= e(t('ACCOUNT RECOVERY')) ?></span><h2><?= e(t('Forgot password')) ?></h2><p><?= e(t('Enter your account email to request a password reset.')) ?></p></div>
-        <?php if ($submitted): ?><div class="alert alert-success" role="status"><?= e(t('If this email belongs to an active account and email delivery is configured, password reset instructions will arrive shortly. Otherwise, contact your school administrator.')) ?></div><?php endif; ?>
+        <div class="form-heading"><span class="step-label"><?= e(t('ACCOUNT RECOVERY')) ?></span><h2><?= e(t('Forgot password')) ?></h2><p><?= e(t('Enter your account email or index code to request a password reset.')) ?></p></div>
+        <?php if ($submitted): ?><div class="alert alert-success" role="status"><?= e(t('If this email or index code belongs to an active account and email delivery is configured, password reset instructions will arrive shortly. Otherwise, contact your school administrator.')) ?></div><?php endif; ?>
         <form method="post" class="form-stack">
             <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>"><input type="hidden" name="lang" value="<?= e(current_language()) ?>">
-            <label><?= e(t('Email address')) ?><input type="email" name="email" required autocomplete="email"></label>
+            <label><?= e(t('Email address or index code')) ?><input name="identifier" required autocomplete="username"></label>
             <button class="button button-primary button-wide" type="submit"><?= e(t('Send reset link')) ?> <span>→</span></button>
         </form>
         <p class="form-footnote"><a class="text-link" href="login.php"><?= e(t('Back to sign in')) ?></a></p>

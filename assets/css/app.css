@@ -125,6 +125,12 @@ h1, h2, h3, p { margin-top: 0; }
 .text-link { color: #675dce; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .text-link span { padding-left: 4px; }
 .table-wrap { width: 100%; overflow-x: auto; }
+.signature-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.signature-field { display: grid; align-content: start; gap: 9px; }
+.signature-field label { color: #343b4f; font-weight: 600; }
+.signature-field small { color: #858d9c; font-size: 11px; }
+.signature-canvas { display: block; width: 100%; height: auto; aspect-ratio: 10 / 3; border: 1px solid #dfe2e8; border-radius: 8px; background: #fff; cursor: crosshair; touch-action: none; }
+.signature-clear { width: fit-content; }
 table { width: 100%; border-collapse: collapse; text-align: left; white-space: nowrap; }
 thead th { padding: 11px 12px; border-bottom: 1px solid #eff0f4; color: #a0a6b2; font-size: 9px; font-weight: 700; letter-spacing: .7px; }
 thead th:first-child, tbody td:first-child { padding-left: 3px; }
@@ -391,4 +397,7 @@ tbody td strong { color: #485062; font-size: 11px; font-weight: 600; }
     .page-content { max-width: none; padding: 0; }
     .report-card { border: 0; border-radius: 0; box-shadow: none; }
     .report-signatures { page-break-inside: avoid; }
+}
+@media (max-width: 700px) {
+    .signature-grid { grid-template-columns: 1fr; }
 }

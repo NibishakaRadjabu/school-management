@@ -90,6 +90,8 @@ CREATE TABLE IF NOT EXISTS behavior_point_deductions (
     recorded_by BIGINT UNSIGNED NULL,
     points_deducted TINYINT UNSIGNED NOT NULL,
     misconduct TEXT NOT NULL,
+    student_signature MEDIUMBLOB NOT NULL,
+    officer_signature MEDIUMBLOB NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_behavior_school_student (school_id, student_id, created_at),
     CONSTRAINT fk_behavior_deductions_school FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE,

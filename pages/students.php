@@ -30,7 +30,7 @@ $studentsWithoutAccounts = array_filter($students, static fn(array $student): bo
 $behaviorHistory = [];
 if ($canManageBehavior) {
     $historyQuery = $pdo->prepare(
-        'SELECT bpd.points_deducted, bpd.misconduct, bpd.created_at, s.first_name, s.last_name, u.name AS recorded_by_name
+        'SELECT bpd.id, bpd.points_deducted, bpd.misconduct, bpd.created_at, s.first_name, s.last_name, u.name AS recorded_by_name
          FROM behavior_point_deductions bpd
          JOIN students s ON s.id = bpd.student_id AND s.school_id = bpd.school_id
          LEFT JOIN users u ON u.id = bpd.recorded_by
@@ -93,10 +93,98 @@ if ($canManageBehavior) {
             <label><?= e(t('Points to deduct')) ?><input type="number" name="points_deducted" required min="1" max="100" step="1"></label>
             <label><?= e(t('Specific misconduct')) ?><textarea name="misconduct" required maxlength="2000" rows="3" placeholder="<?= e(t('Describe the misconduct that led to this deduction.')) ?>"></textarea></label>
         </div>
+        <div class="signature-grid" data-required-message="<?= e(t('Both signatures are required.')) ?>">
+            <div class="signature-field">
+                <label for="student-signature"><?= e(t('Student signature')) ?></label>
+                <canvas id="student-signature" class="signature-canvas" width="600" height="180" aria-label="<?= e(t('Student signature')) ?>"></canvas>
+                <input type="hidden" name="student_signature">
+                <small><?= e(t('Sign using a mouse, touch screen, or stylus.')) ?></small>
+                <button class="button button-secondary signature-clear" type="button"><?= e(t('Clear signature')) ?></button>
+            </div>
+            <div class="signature-field">
+                <label for="officer-signature"><?= e(t('Behavior Officer signature')) ?></label>
+                <canvas id="officer-signature" class="signature-canvas" width="600" height="180" aria-label="<?= e(t('Behavior Officer signature')) ?>"></canvas>
+                <input type="hidden" name="officer_signature">
+                <small><?= e(t('Sign using a mouse, touch screen, or stylus.')) ?></small>
+                <button class="button button-secondary signature-clear" type="button"><?= e(t('Clear signature')) ?></button>
+            </div>
+        </div>
         <button class="button button-primary" type="submit"><?= e(t('Record deduction')) ?> <span>→</span></button>
     </form>
     <?php endif; ?>
 </section>
+<?php endif; ?>
+<?php if ($canManageBehavior && $activeStudents !== []): ?>
+<script>
+document.querySelectorAll('.signature-grid').forEach((group) => {
+    const form = group.closest('form');
+    const signatures = [];
+
+    group.querySelectorAll('.signature-field').forEach((field) => {
+        const canvas = field.querySelector('canvas');
+        const context = canvas.getContext('2d');
+        const output = field.querySelector('input[type="hidden"]');
+        const clearButton = field.querySelector('.signature-clear');
+        let drawing = false;
+        let hasSignature = false;
+
+        context.strokeStyle = '#202638';
+        context.lineWidth = 3;
+        context.lineCap = 'round';
+        context.lineJoin = 'round';
+
+        const position = (event) => {
+            const bounds = canvas.getBoundingClientRect();
+            return {
+                x: (event.clientX - bounds.left) * canvas.width / bounds.width,
+                y: (event.clientY - bounds.top) * canvas.height / bounds.height
+            };
+        };
+
+        canvas.addEventListener('pointerdown', (event) => {
+            event.preventDefault();
+            drawing = true;
+            canvas.setPointerCapture(event.pointerId);
+            const point = position(event);
+            context.beginPath();
+            context.arc(point.x, point.y, 1.5, 0, 2 * Math.PI);
+            context.fill();
+            context.beginPath();
+            context.moveTo(point.x, point.y);
+            hasSignature = true;
+        });
+        canvas.addEventListener('pointermove', (event) => {
+            if (!drawing) return;
+            event.preventDefault();
+            const point = position(event);
+            context.lineTo(point.x, point.y);
+            context.stroke();
+            hasSignature = true;
+        });
+        const stopDrawing = () => { drawing = false; };
+        canvas.addEventListener('pointerup', stopDrawing);
+        canvas.addEventListener('pointercancel', stopDrawing);
+        canvas.addEventListener('lostpointercapture', stopDrawing);
+        clearButton.addEventListener('click', () => {
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            output.value = '';
+            hasSignature = false;
+        });
+        signatures.push({ canvas, output, get hasSignature() { return hasSignature; } });
+    });
+
+    form.addEventListener('submit', (event) => {
+        if (signatures.some((signature) => !signature.hasSignature)) {
+            event.preventDefault();
+            window.alert(group.dataset.requiredMessage);
+            return;
+        }
+        signatures.forEach((signature) => {
+            signature.output.value = signature.canvas.toDataURL('image/png');
+        });
+    });
+});
+</script>
 <?php endif; ?>
 <section class="panel recent-panel">
     <div class="panel-heading"><div><h2><?= e(t('All students')) ?></h2><p><?= count($students) ?> <?= e(t('students in your register')) ?><?= $search !== '' ? ' · ' . e(t('matching your search')) : '' ?></p></div>
@@ -126,8 +214,8 @@ if ($canManageBehavior) {
 <section class="panel recent-panel">
     <div class="panel-heading"><div><h2><?= e(t('Recent behavior deductions')) ?></h2><p><?= e(t('The latest recorded misconduct and point deductions.')) ?></p></div></div>
     <?php if ($behaviorHistory === []): ?><div class="empty-state compact"><p><?= e(t('No behavior point deductions have been recorded.')) ?></p></div><?php else: ?>
-        <div class="table-wrap"><table><thead><tr><th><?= e(t('Student')) ?></th><th><?= e(t('Points deducted')) ?></th><th><?= e(t('Specific misconduct')) ?></th><th><?= e(t('Recorded by')) ?></th><th><?= e(t('Date')) ?></th></tr></thead><tbody>
-        <?php foreach ($behaviorHistory as $entry): ?><tr><td><?= e($entry['first_name'] . ' ' . $entry['last_name']) ?></td><td><?= (int) $entry['points_deducted'] ?></td><td><?= e($entry['misconduct']) ?></td><td><?= e($entry['recorded_by_name'] ?? t('Former staff member')) ?></td><td><?= e(localized_date($entry['created_at'])) ?></td></tr><?php endforeach; ?>
+        <div class="table-wrap"><table><thead><tr><th><?= e(t('Student')) ?></th><th><?= e(t('Points deducted')) ?></th><th><?= e(t('Specific misconduct')) ?></th><th><?= e(t('Recorded by')) ?></th><th><?= e(t('Recorded at')) ?></th><th><?= e(t('Actions')) ?></th></tr></thead><tbody>
+        <?php foreach ($behaviorHistory as $entry): ?><tr><td><?= e($entry['first_name'] . ' ' . $entry['last_name']) ?></td><td><?= (int) $entry['points_deducted'] ?></td><td><?= e($entry['misconduct']) ?></td><td><?= e($entry['recorded_by_name'] ?? t('Former staff member')) ?></td><td><?= e(date('Y-m-d H:i:s', strtotime($entry['created_at']))) ?></td><td><a class="text-link" href="behavior_deduction.php?id=<?= (int) $entry['id'] ?>"><?= e(t('Print record')) ?></a></td></tr><?php endforeach; ?>
         </tbody></table></div>
     <?php endif; ?>
 </section>

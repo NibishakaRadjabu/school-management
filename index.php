@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/app/bootstrap.php';
 require_once __DIR__ . '/app/layout.php';
+require_once __DIR__ . '/app/behavior.php';
 
 if (!school_is_registered()) {
     redirect('setup.php');
@@ -192,10 +193,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $studentId = filter_var($_POST['student_id'] ?? null, FILTER_VALIDATE_INT);
                 $points = filter_var($_POST['points_deducted'] ?? null, FILTER_VALIDATE_INT);
                 $misconduct = trim((string) ($_POST['misconduct'] ?? ''));
-                if ($studentId === false || $points === false || $points < 1 || $points > 100 || $misconduct === '' || strlen($misconduct) > 2000) {
+                if ($studentId === false || $points === false || $points < 1 || $points > 100 || $misconduct === '' || strlen($misconduct) > 8000 || preg_match('/\A.{1,2000}\z/us', $misconduct) !== 1) {
                     flash('Choose an active student, enter a valid point deduction, and describe the specific misconduct.', 'error');
                     break;
                 }
+                $studentSignature = decode_behavior_signature((string) ($_POST['student_signature'] ?? ''));
+                $officerSignature = decode_behavior_signature((string) ($_POST['officer_signature'] ?? ''));
                 $pdo->beginTransaction();
                 $studentCheck = $pdo->prepare('SELECT id FROM students WHERE id = ? AND school_id = ? AND status = ? FOR UPDATE');
                 $studentCheck->execute([$studentId, $user['school_id'], 'active']);
@@ -212,8 +215,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     flash('The deduction cannot be greater than the student’s remaining behavior points.', 'error');
                     break;
                 }
-                $deduction = $pdo->prepare('INSERT INTO behavior_point_deductions (school_id, student_id, recorded_by, points_deducted, misconduct) VALUES (?, ?, ?, ?, ?)');
-                $deduction->execute([$user['school_id'], $studentId, $user['id'], $points, $misconduct]);
+                $deduction = $pdo->prepare('INSERT INTO behavior_point_deductions (school_id, student_id, recorded_by, points_deducted, misconduct, student_signature, officer_signature) VALUES (?, ?, ?, ?, ?, ?, ?)');
+                $deduction->execute([$user['school_id'], $studentId, $user['id'], $points, $misconduct, $studentSignature, $officerSignature]);
                 $pdo->commit();
                 flash('Behavior points deducted and misconduct recorded.');
                 break;

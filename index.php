@@ -21,8 +21,14 @@ $pages = [
     'fees' => ['Fees', __DIR__ . '/pages/fees.php'],
     'communications' => ['Communications', __DIR__ . '/pages/communications.php'],
     'profile' => ['My profile', __DIR__ . '/pages/profile.php'],
+    'parent' => ['Parent portal', __DIR__ . '/pages/parent.php'],
 ];
-$page = $_GET['page'] ?? (($_SESSION['user_role'] ?? '') === 'student' ? 'profile' : 'dashboard');
+$defaultPage = match ($_SESSION['user_role'] ?? '') {
+    'student' => 'profile',
+    'parent' => 'parent',
+    default => 'dashboard',
+};
+$page = $_GET['page'] ?? $defaultPage;
 if (!is_string($page) || !isset($pages[$page])) {
     http_response_code(404);
     $page = 'dashboard';
@@ -48,6 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'delete_teacher' => 'teachers',
         'update_profile' => 'profile',
         'delete_my_account' => 'profile',
+        'link_parent_child' => 'parent',
         'create_subject' => 'academics',
         'create_exam' => 'academics',
         'save_mark' => 'academics',
@@ -66,6 +73,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     try {
         switch ($action) {
+            case 'link_parent_child':
+                if ($user['role'] !== 'parent') {
+                    http_response_code(403);
+                    exit(e(t('Only parent accounts can link a child.')));
+                }
+                $admissionNumber = trim((string) ($_POST['admission_number'] ?? ''));
+                if ($admissionNumber === '' || strlen($admissionNumber) > 50) {
+                    flash('Enter the student admission number.', 'error');
+                    break;
+                }
+                $pdo->beginTransaction();
+                $childGuardian = $pdo->prepare(
+                    'SELECT g.id, g.user_id FROM students s
+                     JOIN student_guardians sg ON sg.student_id = s.id
+                     JOIN guardians g ON g.id = sg.guardian_id
+                     WHERE s.school_id = ? AND s.admission_number = ? AND g.email = ?
+                     FOR UPDATE'
+                );
+                $childGuardian->execute([$user['school_id'], $admissionNumber, (string) ($_SESSION['user_email'] ?? '')]);
+                $matches = $childGuardian->fetchAll();
+                $linkable = array_values(array_filter(
+                    $matches,
+                    static fn(array $guardian): bool => $guardian['user_id'] === null || (int) $guardian['user_id'] === $user['id']
+                ));
+                if ($linkable === []) {
+                    $pdo->rollBack();
+                    flash('No student with that admission number matches your registered parent email.', 'error');
+                    break;
+                }
+                $linkGuardian = $pdo->prepare('UPDATE guardians SET user_id = ? WHERE id = ? AND school_id = ? AND (user_id IS NULL OR user_id = ?)');
+                foreach ($linkable as $guardian) {
+                    $linkGuardian->execute([$user['id'], $guardian['id'], $user['school_id'], $user['id']]);
+                }
+                $pdo->commit();
+                flash('Student linked to your parent account.');
+                break;
+
             case 'create_section':
                 $name = trim((string) ($_POST['name'] ?? ''));
                 if ($name === '') {
@@ -482,11 +526,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare('DELETE FROM password_resets WHERE user_id = ?')->execute([$user['id']]);
                 $updateLinkedStaff = $pdo->prepare('UPDATE teachers SET name = ?, email = ?, phone = ? WHERE user_id = ? AND school_id = ?');
                 $updateLinkedStaff->execute([$name, $email, $phone ?: null, $user['id'], $user['school_id']]);
+                if ($user['role'] === 'parent') {
+                    $updateGuardians = $pdo->prepare('UPDATE guardians SET name = ?, email = ?, phone = ? WHERE user_id = ? AND school_id = ?');
+                    $updateGuardians->execute([$name, $email, $phone ?: null, $user['id'], $user['school_id']]);
+                }
                 $pdo->commit();
                 if ($newProfilePicture !== null || $removePicture) {
                     delete_profile_picture($account['profile_picture']);
                 }
                 $_SESSION['user_name'] = $name;
+                $_SESSION['user_email'] = $email;
                 $_SESSION['profile_picture'] = $picture ?? '';
                 flash('Your profile was updated.');
                 break;

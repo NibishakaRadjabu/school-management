@@ -36,6 +36,7 @@ function render_header(string $title, string $activePage): void
         'attendance' => ['Attendance', '◷'],
         'fees' => ['Fees', '◇'],
         'communications' => ['Communications', '↗'],
+        'parent' => ['Parent portal', '♧'],
     ];
     ?>
     <!doctype html>

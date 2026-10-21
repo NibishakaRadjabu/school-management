@@ -8,7 +8,12 @@ if (!school_is_registered()) {
     redirect('setup.php');
 }
 if (is_logged_in()) {
-    redirect($user['role'] === 'student' ? 'index.php?page=profile' : 'index.php');
+    $destination = match ($_SESSION['user_role'] ?? '') {
+        'student' => 'index.php?page=profile',
+        'parent' => 'index.php?page=parent',
+        default => 'index.php',
+    };
+    redirect($destination);
 }
 
 $error = '';
@@ -18,7 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim((string) ($_POST['email'] ?? ''));
     $password = (string) ($_POST['password'] ?? '');
     $query = database()->prepare(
-        'SELECT u.id, u.school_id, u.name, u.profile_picture, u.password_hash, r.name AS role, s.name AS school_name
+        'SELECT u.id, u.school_id, u.name, u.email, u.profile_picture, u.password_hash, r.name AS role, s.name AS school_name
          FROM users u JOIN roles r ON r.id = u.role_id JOIN schools s ON s.id = u.school_id
          WHERE u.email = ? AND u.is_active = 1 LIMIT 1'
     );
@@ -29,10 +34,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['user_id'] = (int) $user['id'];
         $_SESSION['school_id'] = (int) $user['school_id'];
         $_SESSION['user_name'] = $user['name'];
+        $_SESSION['user_email'] = $user['email'];
         $_SESSION['profile_picture'] = (string) ($user['profile_picture'] ?? '');
         $_SESSION['user_role'] = $user['role'];
         $_SESSION['school_name'] = $user['school_name'];
-        redirect('index.php');
+        redirect(match ($user['role']) {
+            'student' => 'index.php?page=profile',
+            'parent' => 'index.php?page=parent',
+            default => 'index.php',
+        });
     }
     $error = 'We couldn’t sign you in with those details. Please try again.';
 }
@@ -68,6 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </form>
             <p class="form-footnote"><a class="text-link" href="forgot_password.php"><?= e(t('Forgot password')) ?>?</a></p>
             <p class="form-footnote"><?= e(t('Need a school account? Contact your school administrator.')) ?></p>
+            <p class="form-footnote"><a class="text-link" href="parent_register.php"><?= e(t('Parent? Register or link your child')) ?></a></p>
         </div>
     </main>
 </div>

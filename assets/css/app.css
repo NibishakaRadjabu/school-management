@@ -152,6 +152,18 @@ tbody td strong { color: #485062; font-size: 11px; font-weight: 600; }
 .profile-initial { display: grid; place-items: center; background: #e9e7ff; color: #655bd3; font-weight: 700; }
 .checkbox-row { display: flex; align-items: center; gap: 8px; color: #677082; font-size: 12px; }
 .form-note { align-self: center; margin: 0; color: #8991a0; font-size: 12px; }
+.child-list, .parent-announcement-list { display: grid; gap: 10px; }
+.child-card { display: grid; grid-template-columns: 34px minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 12px; border: 1px solid #eff0f5; border-radius: 9px; }
+.child-avatar { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; background: #e9e7ff; color: #655bd3; font-weight: 700; }
+.child-card > div, .child-card > div small { display: grid; gap: 4px; }
+.child-card > div small, .child-attendance { color: #8991a0; font-size: 10px; }
+.child-attendance { grid-column: 2 / -1; }
+.parent-link-form { margin-top: 18px; padding-top: 16px; border-top: 1px solid #eff0f5; }
+.parent-announcement { padding: 13px 0; border-bottom: 1px solid #eff0f5; }
+.parent-announcement:last-child { border-bottom: 0; }
+.parent-announcement h3 { margin: 0; color: #34394b; font-size: 13px; }
+.parent-announcement p { margin: 8px 0; color: #687183; font-size: 12px; line-height: 1.6; }
+.parent-announcement small { color: #9299a7; font-size: 10px; }
 .table-avatar.avatar-violet { background: #f1ebff; color: #8a70cc; }
 .status-pill { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border-radius: 15px; font-size: 10px; font-weight: 600; }
 .status-active, .status-paid, .status-present { background: #eaf7f1; color: #4ba784; }

@@ -194,7 +194,7 @@ function require_login(): void
         redirect('login.php');
     }
     $account = database()->prepare(
-        'SELECT u.is_active, u.name, u.profile_picture, r.name AS role
+        'SELECT u.is_active, u.name, u.email, u.profile_picture, r.name AS role
          FROM users u JOIN roles r ON r.id = u.role_id
          WHERE u.id = ? AND u.school_id = ?'
     );
@@ -207,6 +207,7 @@ function require_login(): void
     }
     $_SESSION['user_role'] = $status['role'];
     $_SESSION['user_name'] = $status['name'];
+    $_SESSION['user_email'] = $status['email'];
     $_SESSION['profile_picture'] = (string) ($status['profile_picture'] ?? '');
 }
 
@@ -227,6 +228,7 @@ function role_pages(string $role): array
         'accountant' => ['dashboard', 'fees', 'profile'],
         'dos', 'head_of_studies' => ['dashboard', 'students', 'classes', 'academics', 'attendance', 'profile'],
         'behavior_officer' => ['dashboard', 'students', 'attendance', 'communications', 'profile'],
+        'parent' => ['parent', 'profile'],
         'student' => ['profile'],
         default => ['dashboard'],
     };
@@ -268,6 +270,7 @@ function current_user(): array
         'id' => (int) $_SESSION['user_id'],
         'school_id' => (int) $_SESSION['school_id'],
         'name' => (string) $_SESSION['user_name'],
+        'email' => (string) ($_SESSION['user_email'] ?? ''),
         'role' => (string) $_SESSION['user_role'],
         'school_name' => (string) $_SESSION['school_name'],
         'profile_picture' => (string) ($_SESSION['profile_picture'] ?? ''),

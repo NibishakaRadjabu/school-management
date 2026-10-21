@@ -62,6 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['user_id'] = $adminId;
             $_SESSION['school_id'] = $schoolId;
             $_SESSION['user_name'] = $values['admin_name'];
+            $_SESSION['user_email'] = $values['admin_email'];
             $_SESSION['profile_picture'] = '';
             $_SESSION['user_role'] = 'admin';
             $_SESSION['school_name'] = $values['school_name'];

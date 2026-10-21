@@ -14,21 +14,30 @@ if (is_logged_in()) {
 
 $error = '';
 $notice = '';
-$admissionNumber = '';
+$studentId = 0;
 $email = '';
+$pdo = database();
+$schoolId = (int) $pdo->query('SELECT id FROM schools ORDER BY id LIMIT 1')->fetchColumn();
+$studentsQuery = $pdo->prepare(
+    'SELECT id, first_name, last_name, admission_number
+     FROM students
+     WHERE school_id = ?
+     ORDER BY last_name, first_name, admission_number'
+);
+$studentsQuery->execute([$schoolId]);
+$students = $studentsQuery->fetchAll();
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
-    $admissionNumber = trim((string) ($_POST['admission_number'] ?? ''));
+    $studentId = (int) ($_POST['student_id'] ?? 0);
     $email = strtolower(trim((string) ($_POST['email'] ?? '')));
     $password = (string) ($_POST['password'] ?? '');
     $confirmation = (string) ($_POST['password_confirmation'] ?? '');
 
-    if ($admissionNumber === '' || strlen($admissionNumber) > 50 || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $error = 'Enter a valid student admission number and the parent email already registered with the school.';
+    if ($studentId <= 0 || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $error = 'Select your child and enter the parent email registered with the school.';
     } elseif (strlen($password) < 10 || $password !== $confirmation) {
         $error = 'Choose a password with at least 10 characters and enter it the same way twice.';
     } else {
-        $pdo = database();
         $createdAccount = false;
         $sendVerification = false;
         $token = '';
@@ -39,15 +48,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                  FROM students s
                  JOIN student_guardians sg ON sg.student_id = s.id
                  JOIN guardians g ON g.id = sg.guardian_id
-                 WHERE s.school_id = ? AND s.admission_number = ? AND g.email = ?
+                 WHERE s.school_id = ? AND s.id = ? AND g.email = ?
                  LIMIT 1 FOR UPDATE'
             );
-            $schoolId = (int) $pdo->query('SELECT id FROM schools ORDER BY id LIMIT 1')->fetchColumn();
-            $guardianQuery->execute([$schoolId, $admissionNumber, $email]);
+            $guardianQuery->execute([$schoolId, $studentId, $email]);
             $guardian = $guardianQuery->fetch();
             if (!$guardian) {
                 $pdo->rollBack();
-                $error = 'We could not verify those details. Check the admission number and use the parent email recorded by the school.';
+                $error = 'We could not verify those details. Select your child and use the parent email recorded by the school.';
             } else {
                 $roleInsert = $pdo->prepare('INSERT INTO roles (name) VALUES (?) ON DUPLICATE KEY UPDATE name = VALUES(name)');
                 $roleInsert->execute(['parent']);
@@ -65,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 if ($existing && ($existing['role'] !== 'parent' || !password_verify($password, $existing['password_hash']))) {
                     $pdo->rollBack();
-                    $error = 'We could not verify those details. Check the admission number and use the password for your parent account.';
+                    $error = 'We could not verify those details. Select your child and use the password for your parent account.';
                 } elseif ($guardian['user_id'] !== null && (!$existing || (int) $guardian['user_id'] !== (int) $existing['id'])) {
                     $pdo->rollBack();
                     $error = 'This parent contact is already linked to another account. Contact the school office for help.';
@@ -179,7 +187,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <?php render_language_selector('language-picker auth-language'); ?>
     <section class="auth-side">
         <a class="auth-brand" href="login.php"><span class="brand-mark">S<span>+</span></span><span><?= e(t('Schoolhouse')) ?></span></a>
-        <div class="auth-pitch"><span class="eyebrow light-eyebrow"><?= e(t('PARENT PORTAL')) ?></span><h1><?= e(t('Stay connected to your child’s school.')) ?></h1><p><?= e(t('Use your child’s admission number and the parent email already held by the school to securely link your account.')) ?></p></div>
+        <div class="auth-pitch"><span class="eyebrow light-eyebrow"><?= e(t('PARENT PORTAL')) ?></span><h1><?= e(t('Stay connected to your child’s school.')) ?></h1><p><?= e(t('Select your child and use the parent email already held by the school to securely link your account.')) ?></p></div>
     </section>
     <main class="auth-main">
         <div class="auth-card login-card">
@@ -188,12 +196,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php if ($notice !== ''): ?><div class="alert alert-success" role="status"><?= e(t($notice)) ?></div><?php endif; ?>
             <form method="post" class="form-stack">
                 <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>">
-                <label><?= e(t('Student admission number')) ?><input name="admission_number" value="<?= e($admissionNumber) ?>" required maxlength="50" autocomplete="off"></label>
+                <label><?= e(t('Select your child')) ?>
+                    <select name="student_id" required>
+                        <option value=""><?= e(t('Choose a student')) ?></option>
+                        <?php foreach ($students as $student): ?>
+                            <option value="<?= (int) $student['id'] ?>" <?= $studentId === (int) $student['id'] ? 'selected' : '' ?>>
+                                <?= e($student['first_name'] . ' ' . $student['last_name'] . ' (' . $student['admission_number'] . ')') ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
                 <label><?= e(t('Parent email registered with the school')) ?><input type="email" name="email" value="<?= e($email) ?>" required maxlength="190" autocomplete="email"></label>
                 <label><?= e(t('Create or confirm parent account password')) ?><input type="password" name="password" required minlength="10" autocomplete="new-password"><small><?= e(t('For a new account choose at least 10 characters. If you already have a parent account, enter its current password.')) ?></small></label>
                 <label><?= e(t('Confirm password')) ?><input type="password" name="password_confirmation" required minlength="10" autocomplete="new-password"></label>
-                <button class="button button-primary button-wide" type="submit"><?= e(t('Verify and link student')) ?> <span>→</span></button>
+                <button class="button button-primary button-wide" type="submit" <?= $students === [] ? 'disabled' : '' ?>><?= e(t('Verify and link student')) ?> <span>→</span></button>
             </form>
+            <?php if ($students === []): ?><div class="alert alert-error" role="alert"><?= e(t('No students are registered yet. Contact the school office for help.')) ?></div><?php endif; ?>
             <p class="form-footnote"><a class="text-link" href="login.php"><?= e(t('Already registered? Sign in')) ?></a></p>
         </div>
     </main>

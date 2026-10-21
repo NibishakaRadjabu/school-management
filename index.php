@@ -46,6 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'create_section' => 'classes',
         'create_class' => 'classes',
         'create_student' => 'students',
+        'update_student' => 'students',
         'create_student_account' => 'students',
         'deduct_behavior_points' => 'students',
         'create_teacher' => 'teachers',
@@ -227,6 +228,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $pdo->commit();
                 flash(t('Student added to the register. Index code: {{code}}', ['{{code}}' => $indexCode]));
+                break;
+
+            case 'update_student':
+                if (!can_edit_student_records()) {
+                    http_response_code(403);
+                    exit(e(t('You do not have permission to edit student records.')));
+                }
+                $studentId = filter_var($_POST['student_id'] ?? null, FILTER_VALIDATE_INT);
+                $firstName = trim((string) ($_POST['first_name'] ?? ''));
+                $lastName = trim((string) ($_POST['last_name'] ?? ''));
+                $admission = trim((string) ($_POST['admission_number'] ?? ''));
+                $classId = filter_var($_POST['class_id'] ?? 0, FILTER_VALIDATE_INT);
+                $birthDate = trim((string) ($_POST['date_of_birth'] ?? ''));
+                $gender = (string) ($_POST['gender'] ?? '');
+                $enrollmentDate = (string) ($_POST['enrollment_date'] ?? '');
+                $status = (string) ($_POST['status'] ?? '');
+                $validDate = static function (string $date): bool {
+                    if (preg_match('/\A(\d{4})-(\d{2})-(\d{2})\z/', $date, $matches) !== 1) {
+                        return false;
+                    }
+                    return checkdate((int) $matches[2], (int) $matches[3], (int) $matches[1]);
+                };
+                if ($studentId === false || $studentId <= 0 || $firstName === '' || strlen($firstName) > 80
+                    || $lastName === '' || strlen($lastName) > 80 || $admission === '' || strlen($admission) > 50
+                    || $classId === false || $classId < 0
+                    || ($birthDate !== '' && !$validDate($birthDate))
+                    || !$validDate($enrollmentDate)
+                    || !in_array($gender, ['', 'female', 'male', 'other'], true)
+                    || !in_array($status, ['active', 'inactive', 'graduated'], true)) {
+                    flash('Enter valid student details before saving changes.', 'error');
+                    break;
+                }
+                if ($classId > 0) {
+                    $classCheck = $pdo->prepare('SELECT id FROM classes WHERE id = ? AND school_id = ?');
+                    $classCheck->execute([$classId, $user['school_id']]);
+                    if (!$classCheck->fetchColumn()) {
+                        flash('Choose a class belonging to this school.', 'error');
+                        break;
+                    }
+                }
+                $pdo->beginTransaction();
+                $studentCheck = $pdo->prepare('SELECT user_id FROM students WHERE id = ? AND school_id = ? FOR UPDATE');
+                $studentCheck->execute([$studentId, $user['school_id']]);
+                $studentUserId = $studentCheck->fetchColumn();
+                if ($studentUserId === false) {
+                    $pdo->rollBack();
+                    flash('The student record could not be found in this school.', 'error');
+                    break;
+                }
+                $update = $pdo->prepare(
+                    'UPDATE students
+                     SET class_id = ?, admission_number = ?, first_name = ?, last_name = ?,
+                         date_of_birth = ?, gender = ?, enrollment_date = ?, status = ?
+                     WHERE id = ? AND school_id = ?'
+                );
+                $update->execute([
+                    $classId ?: null,
+                    $admission,
+                    $firstName,
+                    $lastName,
+                    $birthDate !== '' ? $birthDate : null,
+                    $gender !== '' ? $gender : null,
+                    $enrollmentDate,
+                    $status,
+                    $studentId,
+                    $user['school_id'],
+                ]);
+                if ($studentUserId !== null) {
+                    $updateAccount = $pdo->prepare('UPDATE users SET name = ? WHERE id = ? AND school_id = ?');
+                    $updateAccount->execute([$firstName . ' ' . $lastName, $studentUserId, $user['school_id']]);
+                }
+                $pdo->commit();
+                flash('Student record updated.');
                 break;
 
             case 'deduct_behavior_points':

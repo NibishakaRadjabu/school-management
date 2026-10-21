@@ -239,6 +239,11 @@ function can_access_page(string $page): bool
     return in_array($page, role_pages((string) ($_SESSION['user_role'] ?? '')), true);
 }
 
+function can_edit_student_records(): bool
+{
+    return in_array((string) ($_SESSION['user_role'] ?? ''), ['admin', 'dos', 'behavior_officer'], true);
+}
+
 function role_label(string $role): string
 {
     $labels = [

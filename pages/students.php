@@ -1,6 +1,7 @@
 <?php
 $schoolId = current_user()['school_id'];
 $canManageBehavior = in_array(current_user()['role'], ['admin', 'behavior_officer'], true);
+$canEditStudents = can_edit_student_records();
 $pdo = database();
 $classQuery = $pdo->prepare('SELECT id, name FROM classes WHERE school_id = ? ORDER BY name');
 $classQuery->execute([$schoolId]);
@@ -16,7 +17,7 @@ $behaviorScoreColumn = $canManageBehavior
     ? ', GREATEST(0, 100 - (SELECT COALESCE(SUM(bpd.points_deducted), 0) FROM behavior_point_deductions bpd WHERE bpd.school_id = s.school_id AND bpd.student_id = s.id)) AS behavior_score'
     : '';
 $studentsQuery = $pdo->prepare(
-    'SELECT s.id, s.user_id, s.admission_number, s.index_code, s.first_name, s.last_name, s.enrollment_date, s.status, c.name AS class_name' . $behaviorScoreColumn . ',
+    'SELECT s.id, s.user_id, s.class_id, s.admission_number, s.index_code, s.first_name, s.last_name, s.date_of_birth, s.gender, s.enrollment_date, s.status, c.name AS class_name' . $behaviorScoreColumn . ',
             g.name AS guardian_name, g.phone AS guardian_phone
      FROM students s LEFT JOIN classes c ON c.id = s.class_id
      LEFT JOIN student_guardians sg ON sg.student_id = s.id AND sg.is_primary = 1
@@ -205,7 +206,23 @@ document.querySelectorAll('.signature-grid').forEach((group) => {
                     <?php if ($canManageBehavior): ?><div><small><?= e(t('Behavior points')) ?></small><strong><?= (int) $student['behavior_score'] ?> / 100</strong></div><?php endif; ?>
                     <div><small><?= e(t('Parent or guardian')) ?></small><strong><?= e($student['guardian_name'] ?? '—') ?></strong><?php if ($student['guardian_phone']): ?><span><?= e($student['guardian_phone']) ?></span><?php endif; ?></div>
                 </div>
-                <?php if (can_access_page('academics')): ?><div class="profile-card-actions"><a class="text-link" href="report_card.php?student_id=<?= (int) $student['id'] ?>"><?= e(t('Report card')) ?> →</a></div><?php endif; ?>
+                <?php if (can_access_page('academics') || $canEditStudents): ?><div class="profile-card-actions">
+                    <?php if (can_access_page('academics')): ?><a class="text-link" href="report_card.php?student_id=<?= (int) $student['id'] ?>"><?= e(t('Report card')) ?> →</a><?php endif; ?>
+                    <?php if ($canEditStudents): ?><details class="student-edit"><summary class="text-link"><?= e(t('Edit student')) ?></summary>
+                        <form method="post" action="index.php?page=students" class="form-stack">
+                            <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>"><input type="hidden" name="action" value="update_student"><input type="hidden" name="student_id" value="<?= (int) $student['id'] ?>">
+                            <label><?= e(t('First name')) ?><input name="first_name" value="<?= e($student['first_name']) ?>" required maxlength="80"></label>
+                            <label><?= e(t('Last name')) ?><input name="last_name" value="<?= e($student['last_name']) ?>" required maxlength="80"></label>
+                            <label><?= e(t('Admission number')) ?><input name="admission_number" value="<?= e($student['admission_number']) ?>" required maxlength="50"></label>
+                            <label><?= e(t('Class')) ?><select name="class_id"><option value="0"><?= e(t('Unassigned')) ?></option><?php foreach ($classOptions as $class): ?><option value="<?= (int) $class['id'] ?>" <?= (int) $student['class_id'] === (int) $class['id'] ? 'selected' : '' ?>><?= e($class['name']) ?></option><?php endforeach; ?></select></label>
+                            <label><?= e(t('Date of birth')) ?><input type="date" name="date_of_birth" value="<?= e($student['date_of_birth'] ?? '') ?>"></label>
+                            <label><?= e(t('Gender')) ?><select name="gender"><option value=""><?= e(t('Prefer not to say')) ?></option><option value="female" <?= $student['gender'] === 'female' ? 'selected' : '' ?>><?= e(t('Female')) ?></option><option value="male" <?= $student['gender'] === 'male' ? 'selected' : '' ?>><?= e(t('Male')) ?></option><option value="other" <?= $student['gender'] === 'other' ? 'selected' : '' ?>><?= e(t('Other')) ?></option></select></label>
+                            <label><?= e(t('Enrollment date')) ?><input type="date" name="enrollment_date" value="<?= e($student['enrollment_date']) ?>" required></label>
+                            <label><?= e(t('Status')) ?><select name="status" required><option value="active" <?= $student['status'] === 'active' ? 'selected' : '' ?>><?= e(t('Active')) ?></option><option value="inactive" <?= $student['status'] === 'inactive' ? 'selected' : '' ?>><?= e(t('Inactive')) ?></option><option value="graduated" <?= $student['status'] === 'graduated' ? 'selected' : '' ?>><?= e(t('Graduated')) ?></option></select></label>
+                            <button class="button button-secondary" type="submit"><?= e(t('Save changes')) ?></button>
+                        </form>
+                    </details><?php endif; ?>
+                </div><?php endif; ?>
             </article><?php endforeach; ?>
         </div>
     <?php endif; ?>

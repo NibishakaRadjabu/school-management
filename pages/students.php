@@ -1,12 +1,22 @@
 <?php
 $schoolId = current_user()['school_id'];
+$canManageBehavior = in_array(current_user()['role'], ['admin', 'behavior_officer'], true);
 $pdo = database();
 $classQuery = $pdo->prepare('SELECT id, name FROM classes WHERE school_id = ? ORDER BY name');
 $classQuery->execute([$schoolId]);
 $classOptions = $classQuery->fetchAll();
+$activeStudents = [];
+if ($canManageBehavior) {
+    $activeStudentsQuery = $pdo->prepare('SELECT id, first_name, last_name, admission_number FROM students WHERE school_id = ? AND status = ? ORDER BY last_name, first_name');
+    $activeStudentsQuery->execute([$schoolId, 'active']);
+    $activeStudents = $activeStudentsQuery->fetchAll();
+}
 $search = trim((string) ($_GET['q'] ?? ''));
+$behaviorScoreColumn = $canManageBehavior
+    ? ', GREATEST(0, 100 - (SELECT COALESCE(SUM(bpd.points_deducted), 0) FROM behavior_point_deductions bpd WHERE bpd.school_id = s.school_id AND bpd.student_id = s.id)) AS behavior_score'
+    : '';
 $studentsQuery = $pdo->prepare(
-    'SELECT s.id, s.user_id, s.admission_number, s.index_code, s.first_name, s.last_name, s.enrollment_date, s.status, c.name AS class_name,
+    'SELECT s.id, s.user_id, s.admission_number, s.index_code, s.first_name, s.last_name, s.enrollment_date, s.status, c.name AS class_name' . $behaviorScoreColumn . ',
             g.name AS guardian_name, g.phone AS guardian_phone
      FROM students s LEFT JOIN classes c ON c.id = s.class_id
      LEFT JOIN student_guardians sg ON sg.student_id = s.id AND sg.is_primary = 1
@@ -17,6 +27,20 @@ $studentsQuery = $pdo->prepare(
 $studentsQuery->execute([$schoolId, $search, '%' . $search . '%']);
 $students = $studentsQuery->fetchAll();
 $studentsWithoutAccounts = array_filter($students, static fn(array $student): bool => $student['user_id'] === null);
+$behaviorHistory = [];
+if ($canManageBehavior) {
+    $historyQuery = $pdo->prepare(
+        'SELECT bpd.points_deducted, bpd.misconduct, bpd.created_at, s.first_name, s.last_name, u.name AS recorded_by_name
+         FROM behavior_point_deductions bpd
+         JOIN students s ON s.id = bpd.student_id AND s.school_id = bpd.school_id
+         LEFT JOIN users u ON u.id = bpd.recorded_by
+         WHERE bpd.school_id = ?
+         ORDER BY bpd.created_at DESC, bpd.id DESC
+         LIMIT 50'
+    );
+    $historyQuery->execute([$schoolId]);
+    $behaviorHistory = $historyQuery->fetchAll();
+}
 ?>
 <section class="page-heading"><div><span class="eyebrow"><?= e(t('YOUR SCHOOL COMMUNITY')) ?></span><h1><?= e(t('Student register')) ?></h1><p><?= e(t('Keep student records and family contacts together.')) ?></p></div><a class="button button-primary" href="#add-student"><span>＋</span> <?= e(t('Add student')) ?></a></section>
 <section class="panel form-panel" id="add-student">
@@ -58,6 +82,22 @@ $studentsWithoutAccounts = array_filter($students, static fn(array $student): bo
     </form>
 </section>
 <?php endif; ?>
+<?php if ($canManageBehavior): ?>
+<section class="panel form-panel" id="behavior-points">
+    <div class="panel-heading"><div><h2><?= e(t('Deduct behavior points')) ?></h2><p><?= e(t('Students start with 100 points. Record the specific misconduct for every deduction.')) ?></p></div><span class="panel-icon">−</span></div>
+    <?php if ($activeStudents === []): ?><div class="empty-state compact"><p><?= e(t('There are no active students to record behavior points for.')) ?></p></div><?php else: ?>
+    <form method="post" action="index.php?page=students#behavior-points" class="form-stack">
+        <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>"><input type="hidden" name="action" value="deduct_behavior_points">
+        <div class="form-grid form-grid-three">
+            <label><?= e(t('Student')) ?><select name="student_id" required><option value=""><?= e(t('Choose a student')) ?></option><?php foreach ($activeStudents as $student): ?><option value="<?= (int) $student['id'] ?>"><?= e($student['first_name'] . ' ' . $student['last_name'] . ' · ' . $student['admission_number']) ?></option><?php endforeach; ?></select></label>
+            <label><?= e(t('Points to deduct')) ?><input type="number" name="points_deducted" required min="1" max="100" step="1"></label>
+            <label><?= e(t('Specific misconduct')) ?><textarea name="misconduct" required maxlength="2000" rows="3" placeholder="<?= e(t('Describe the misconduct that led to this deduction.')) ?>"></textarea></label>
+        </div>
+        <button class="button button-primary" type="submit"><?= e(t('Record deduction')) ?> <span>→</span></button>
+    </form>
+    <?php endif; ?>
+</section>
+<?php endif; ?>
 <section class="panel recent-panel">
     <div class="panel-heading"><div><h2><?= e(t('All students')) ?></h2><p><?= count($students) ?> <?= e(t('students in your register')) ?><?= $search !== '' ? ' · ' . e(t('matching your search')) : '' ?></p></div>
         <form method="get" class="search-form"><input type="hidden" name="page" value="students"><input type="hidden" name="lang" value="<?= e(current_language()) ?>"><label class="visually-hidden" for="student-search"><?= e(t('Search students')) ?></label><input id="student-search" name="q" value="<?= e($search) ?>" placeholder="<?= e(t('Search name or admission no.')) ?>"><button type="submit" aria-label="<?= e(t('Search')) ?>">⌕</button></form>
@@ -74,6 +114,7 @@ $studentsWithoutAccounts = array_filter($students, static fn(array $student): bo
                     <div><small><?= e(t('INDEX CODE')) ?></small><strong><?= e($student['index_code']) ?></strong></div>
                     <div><small><?= e(t('Class')) ?></small><strong><?= e($student['class_name'] ?? t('Unassigned')) ?></strong></div>
                     <div><small><?= e(t('Enrollment date')) ?></small><strong><?= e(localized_date($student['enrollment_date'])) ?></strong></div>
+                    <?php if ($canManageBehavior): ?><div><small><?= e(t('Behavior points')) ?></small><strong><?= (int) $student['behavior_score'] ?> / 100</strong></div><?php endif; ?>
                     <div><small><?= e(t('Parent or guardian')) ?></small><strong><?= e($student['guardian_name'] ?? '—') ?></strong><?php if ($student['guardian_phone']): ?><span><?= e($student['guardian_phone']) ?></span><?php endif; ?></div>
                 </div>
                 <?php if (can_access_page('academics')): ?><div class="profile-card-actions"><a class="text-link" href="report_card.php?student_id=<?= (int) $student['id'] ?>"><?= e(t('Report card')) ?> →</a></div><?php endif; ?>
@@ -81,3 +122,13 @@ $studentsWithoutAccounts = array_filter($students, static fn(array $student): bo
         </div>
     <?php endif; ?>
 </section>
+<?php if ($canManageBehavior): ?>
+<section class="panel recent-panel">
+    <div class="panel-heading"><div><h2><?= e(t('Recent behavior deductions')) ?></h2><p><?= e(t('The latest recorded misconduct and point deductions.')) ?></p></div></div>
+    <?php if ($behaviorHistory === []): ?><div class="empty-state compact"><p><?= e(t('No behavior point deductions have been recorded.')) ?></p></div><?php else: ?>
+        <div class="table-wrap"><table><thead><tr><th><?= e(t('Student')) ?></th><th><?= e(t('Points deducted')) ?></th><th><?= e(t('Specific misconduct')) ?></th><th><?= e(t('Recorded by')) ?></th><th><?= e(t('Date')) ?></th></tr></thead><tbody>
+        <?php foreach ($behaviorHistory as $entry): ?><tr><td><?= e($entry['first_name'] . ' ' . $entry['last_name']) ?></td><td><?= (int) $entry['points_deducted'] ?></td><td><?= e($entry['misconduct']) ?></td><td><?= e($entry['recorded_by_name'] ?? t('Former staff member')) ?></td><td><?= e(localized_date($entry['created_at'])) ?></td></tr><?php endforeach; ?>
+        </tbody></table></div>
+    <?php endif; ?>
+</section>
+<?php endif; ?>

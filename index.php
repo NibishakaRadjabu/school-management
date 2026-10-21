@@ -40,6 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'create_class' => 'classes',
         'create_student' => 'students',
         'create_student_account' => 'students',
+        'deduct_behavior_points' => 'students',
         'create_teacher' => 'teachers',
         'create_teacher_account' => 'teachers',
         'update_teacher' => 'teachers',
@@ -181,6 +182,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $pdo->commit();
                 flash(t('Student added to the register. Index code: {{code}}', ['{{code}}' => $indexCode]));
+                break;
+
+            case 'deduct_behavior_points':
+                if (!in_array($user['role'], ['admin', 'behavior_officer'], true)) {
+                    http_response_code(403);
+                    exit(e(t('You do not have permission to record behavior point deductions.')));
+                }
+                $studentId = filter_var($_POST['student_id'] ?? null, FILTER_VALIDATE_INT);
+                $points = filter_var($_POST['points_deducted'] ?? null, FILTER_VALIDATE_INT);
+                $misconduct = trim((string) ($_POST['misconduct'] ?? ''));
+                if ($studentId === false || $points === false || $points < 1 || $points > 100 || $misconduct === '' || strlen($misconduct) > 2000) {
+                    flash('Choose an active student, enter a valid point deduction, and describe the specific misconduct.', 'error');
+                    break;
+                }
+                $pdo->beginTransaction();
+                $studentCheck = $pdo->prepare('SELECT id FROM students WHERE id = ? AND school_id = ? AND status = ? FOR UPDATE');
+                $studentCheck->execute([$studentId, $user['school_id'], 'active']);
+                if (!$studentCheck->fetchColumn()) {
+                    $pdo->rollBack();
+                    flash('Choose an active student in this school.', 'error');
+                    break;
+                }
+                $deductedQuery = $pdo->prepare('SELECT COALESCE(SUM(points_deducted), 0) FROM behavior_point_deductions WHERE school_id = ? AND student_id = ?');
+                $deductedQuery->execute([$user['school_id'], $studentId]);
+                $currentScore = 100 - (int) $deductedQuery->fetchColumn();
+                if ($points > $currentScore) {
+                    $pdo->rollBack();
+                    flash('The deduction cannot be greater than the student’s remaining behavior points.', 'error');
+                    break;
+                }
+                $deduction = $pdo->prepare('INSERT INTO behavior_point_deductions (school_id, student_id, recorded_by, points_deducted, misconduct) VALUES (?, ?, ?, ?, ?)');
+                $deduction->execute([$user['school_id'], $studentId, $user['id'], $points, $misconduct]);
+                $pdo->commit();
+                flash('Behavior points deducted and misconduct recorded.');
                 break;
 
             case 'create_student_account':

@@ -1,4 +1,7 @@
 <?php
+require_once __DIR__ . '/../app/mailer.php';
+
+$emailConfigured = smtp_mail_is_configured();
 $schoolId = current_user()['school_id'];
 $pdo = database();
 $guardianQuery = $pdo->prepare('SELECT COUNT(DISTINCT g.id) FROM guardians g JOIN student_guardians sg ON sg.guardian_id = g.id WHERE g.school_id = ?');
@@ -33,9 +36,9 @@ $announcements = $announcementQuery->fetchAll();
     <article class="panel form-panel communication-summary">
         <div class="panel-heading"><div><h2><?= e(t('Your channels')) ?></h2><p><?= e(t('Delivery setup overview')) ?></p></div><span class="panel-icon">✳</span></div>
         <div class="channel-status"><span class="channel-symbol channel-sms">SMS</span><span><strong><?= e(t('Text messages')) ?></strong><small><?= e(t('Provider not connected')) ?></small></span><span class="setup-status"><?= e(t('Setup needed')) ?></span></div>
-        <div class="channel-status"><span class="channel-symbol channel-email">✉</span><span><strong><?= e(t('Email')) ?></strong><small><?= e(t('Gmail / SMTP not connected')) ?></small></span><span class="setup-status"><?= e(t('Setup needed')) ?></span></div>
+        <div class="channel-status"><span class="channel-symbol channel-email">✉</span><span><strong><?= e(t('Email')) ?></strong><small><?= e(t($emailConfigured ? 'Gmail / SMTP configured' : 'Gmail / SMTP not connected')) ?></small></span><span class="setup-status"><?= e(t($emailConfigured ? 'Configured' : 'Setup needed')) ?></span></div>
         <div class="channel-status"><span class="channel-symbol channel-app">▣</span><span><strong><?= e(t('Mobile app')) ?></strong><small><?= e(t('App service not connected')) ?></small></span><span class="setup-status"><?= e(t('Setup needed')) ?></span></div>
-        <div class="integration-note"><strong><?= e(t('Not sending just yet')) ?></strong><p><?= e(t('Connect your provider credentials in the server configuration before turning on live delivery. Your announcements are safely recorded here in the meantime.')) ?></p></div>
+        <div class="integration-note"><strong><?= e(t($emailConfigured ? 'Email provider is configured' : 'Not sending just yet')) ?></strong><p><?= e(t($emailConfigured ? 'Schedule the email outbox worker to deliver queued announcement emails. SMS and app notifications still require their own providers.' : 'Connect your provider credentials in the server configuration before turning on live delivery. Your announcements are safely recorded here in the meantime.')) ?></p></div>
     </article>
 </section>
 <section class="panel recent-panel">

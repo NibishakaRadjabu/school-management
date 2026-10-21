@@ -7,6 +7,7 @@ A framework-free PHP and MySQL starter for nursery, primary, and secondary schoo
 - PHP 8.1 or later with PDO MySQL and Fileinfo enabled
 - MySQL 8.0 or later (or a compatible MariaDB release)
 - Apache, such as the Apache server included with XAMPP
+- Composer 2 for Gmail/SMTP email delivery
 
 ## Run locally with XAMPP
 
@@ -36,7 +37,7 @@ Use the language selector in the page header or on the sign-in/setup screen to s
 - Administrators can provision sign-in accounts for existing students who were imported before this feature; their migration-generated index codes then work for email-verified recovery as well.
 - Administrators can add another administrator account from the staff directory. An administrator can delete their own account in **My profile** only after re-entering their password and only if another active administrator remains, so the school is not left without an administrator.
 - Staff administrators can edit or delete staff records, update staff roles and sign-in details, disable access, and reset a staff password. Staff can edit their own name, email, phone, profile picture, and password from **My profile**. Profile photos accept JPG, PNG, or WebP up to 3 MB.
-- Forgotten-password links are single-use and expire after one hour. Users can enter their email or their student/staff index code to request recovery. A code alone never resets a password. To enable email recovery, configure `APP_URL` to the base URL of this installation (for example, `http://localhost/school%20management` locally), `MAIL_FROM` to a valid sender address, and configure PHP's `mail()` transport (for XAMPP, configure its sendmail settings). Until email is configured, staff should contact an administrator, who can set a temporary password in the staff editor.
+- Forgotten-password links are single-use and expire after one hour. Users can enter their email or their student/staff index code to request recovery. A code alone never resets a password. To enable email recovery, configure `APP_URL` and the Gmail/SMTP environment variables described below. Until email is configured, staff should contact an administrator, who can set a temporary password in the staff editor.
 
 Student accounts can access only their own profile and account settings; student access to academic records is not currently provided.
 
@@ -44,7 +45,38 @@ Staff account access is restricted by role: teachers can use students, attendanc
 
 ## Notification delivery
 
-Announcements are stored and eligible guardian destinations are placed in the database outbox. **The application does not send SMS, Gmail/email, or mobile-app notifications by itself.** Configure and integrate a trusted SMS gateway, SMTP/Gmail transport, or app push-notification provider before processing queued messages. Provider credentials should be stored in environment variables, not committed to source control. The attendance screen records attendance but does not automatically send absence alerts.
+Announcements are stored and eligible guardian destinations are placed in the database outbox. Gmail/SMTP can deliver password-reset emails and queued announcement emails; SMS and mobile-app notifications still need their own provider integration. Provider credentials must be stored in environment variables, not committed to source control. The attendance screen records attendance but does not automatically send absence alerts.
+
+### Gmail SMTP setup
+
+1. Revoke any app password that has been shared or exposed, then create a replacement from the Google Account's **App passwords** page. Do not paste it into source code, chat, or this README.
+2. From the project directory, install the mail dependency with `composer install`.
+3. Set these environment variables for both Apache and the account that runs scheduled tasks:
+   - `APP_URL`: public base URL of this installation, with no trailing slash.
+   - `MAIL_HOST`: `smtp.gmail.com`.
+   - `MAIL_PORT`: `587`.
+   - `MAIL_ENCRYPTION`: `tls`.
+   - `MAIL_USERNAME`: the full Gmail address.
+   - `MAIL_PASSWORD`: the replacement Google app password, entered without spaces.
+   - `MAIL_FROM`: the same Gmail address used for `MAIL_USERNAME`.
+   - `MAIL_FROM_NAME`: optional sender display name; defaults to `Schoolhouse`.
+
+   On XAMPP for Windows, use Windows system environment variables or add `SetEnv` entries to Apache's configuration outside the project directory, then restart Apache. For example:
+   ```apache
+   SetEnv APP_URL "http://localhost/school%20management"
+   SetEnv MAIL_HOST "smtp.gmail.com"
+   SetEnv MAIL_PORT "587"
+   SetEnv MAIL_ENCRYPTION "tls"
+   SetEnv MAIL_USERNAME "your-account@gmail.com"
+   SetEnv MAIL_PASSWORD "your-new-app-password-without-spaces"
+   SetEnv MAIL_FROM "your-account@gmail.com"
+   SetEnv MAIL_FROM_NAME "Schoolhouse"
+   ```
+   Replace the example values locally and protect that configuration from other local users. Do not add secrets to a project `.env` file or commit them.
+4. Request a password reset to verify that the SMTP connection works. For queued announcement emails, schedule this command with Windows Task Scheduler (for example, once per minute):
+   `C:\xampp\php\php.exe "C:\xampp\htdocs\school management\bin\send_notification_emails.php" --limit=50`
+
+The outbox worker sends queued email messages only; SMS and app rows remain queued for their respective integrations. Delivery errors are written to the PHP error log and mark that outbox item `failed`. Run only with valid SMTP configuration. Gmail may enforce sending limits or account restrictions.
 
 ## Database
 

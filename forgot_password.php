@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/app/bootstrap.php';
 require_once __DIR__ . '/app/layout.php';
+require_once __DIR__ . '/app/mailer.php';
 
 if (!school_is_registered()) {
     redirect('setup.php');
@@ -57,14 +58,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 . t('Use this one-time link to choose a new password. It expires in one hour.') . "\n"
                 . $resetUrl . "\n\n"
                 . t('If you did not request a password reset, you can ignore this message.');
-            $headers = "From: " . $from . "\r\nContent-Type: text/plain; charset=UTF-8";
-            if (!mail($account['email'], $subject, $body, $headers)) {
+            try {
+                send_application_email((string) $account['email'], $subject, $body);
+            } catch (Throwable $exception) {
                 $pdo->prepare('DELETE FROM password_resets WHERE user_id = ?')->execute([$account['id']]);
-                error_log('Password reset email could not be sent for user id ' . (int) $account['id']);
+                error_log('Password reset email could not be sent for user id ' . (int) $account['id'] . ': ' . $exception->getMessage());
             }
         }
     } elseif ($identifier !== '') {
-        error_log('Password reset email is unavailable: configure valid APP_URL and MAIL_FROM values and PHP mail transport.');
+        error_log('Password reset email is unavailable: configure a valid APP_URL and MAIL_FROM, plus an email transport.');
     }
 }
 ?>

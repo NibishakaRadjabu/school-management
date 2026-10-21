@@ -709,7 +709,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
                 $pdo->commit();
-                flash(t('Announcement saved; {{count}} notification(s) queued. Connect delivery providers to send them.', ['{{count}}' => (string) $queuedCount]));
+                flash(t('Announcement saved; {{count}} notification(s) queued. Run the email outbox worker for email; other channels need their own integrations.', ['{{count}}' => (string) $queuedCount]));
                 break;
 
             default:

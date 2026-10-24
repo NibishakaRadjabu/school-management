@@ -16,6 +16,12 @@ if (can_access_page('classes')) {
 if (can_access_page('fees')) {
     $queries['fees'] = ['SELECT COALESCE(SUM(p.amount), 0) FROM fee_payments p JOIN fee_invoices i ON i.id = p.invoice_id WHERE i.school_id = ?', 'accent-green'];
 }
+if (can_access_page('communications')) {
+    $queries['parents'] = [
+        'SELECT COUNT(DISTINCT g.id) FROM guardians g JOIN student_guardians sg ON sg.guardian_id = g.id WHERE g.school_id = ?',
+        'accent-orange',
+    ];
+}
 foreach ($queries as $key => [$sql, $class]) {
     $statement = $pdo->prepare($sql);
     $statement->execute([$schoolId]);
@@ -47,6 +53,9 @@ if (can_access_page('students')) {
     $recentStudents = $recent->fetchAll();
 }
 $dashboardPanelCount = (int) can_access_page('classes') + (int) can_access_page('attendance');
+$dashboardStatsClass = count($metrics) === 5
+    ? ' stat-grid-five'
+    : (count($metrics) === 1 ? ' stat-grid-single' : (count($metrics) === 2 ? ' stat-grid-two' : (isset($metrics['fees']) ? '' : ' stat-grid-three')));
 ?>
 <section class="page-heading">
     <div><span class="eyebrow"><?= e(t('YOUR SCHOOL AT A GLANCE')) ?></span><h1><?= e(t('A good day to make progress.')) ?></h1><p><?= e(t('Here’s what’s happening across your school.')) ?> <?= e(current_user()['school_name']) ?>.</p></div>
@@ -54,10 +63,11 @@ $dashboardPanelCount = (int) can_access_page('classes') + (int) can_access_page(
     <a class="button button-primary" href="index.php?page=students#add-student"><span>＋</span> <?= e(t('Add a student')) ?></a>
     <?php endif; ?>
 </section>
-<section class="stat-grid<?= count($metrics) === 1 ? ' stat-grid-single' : (count($metrics) === 2 ? ' stat-grid-two' : (isset($metrics['fees']) ? '' : ' stat-grid-three')) ?>" aria-label="<?= e(t('School overview')) ?>">
+<section class="stat-grid<?= $dashboardStatsClass ?>" aria-label="<?= e(t('School overview')) ?>">
     <?php if (isset($metrics['students'])): ?><article class="stat-card"><div class="stat-top"><span class="stat-label"><?= e(t('Active students')) ?></span><span class="stat-icon accent-blue">♧</span></div><strong class="stat-value"><?= number_format((int) $metrics['students']['value']) ?></strong><div class="stat-foot"><span class="stat-trend neutral"><?= e(t('Across your school')) ?></span></div></article><?php endif; ?>
     <?php if (isset($metrics['teachers'])): ?><article class="stat-card"><div class="stat-top"><span class="stat-label"><?= e(t('Teaching staff')) ?></span><span class="stat-icon accent-violet">♙</span></div><strong class="stat-value"><?= number_format((int) $metrics['teachers']['value']) ?></strong><div class="stat-foot"><span class="stat-trend neutral"><?= e(t('Active staff members')) ?></span></div></article><?php endif; ?>
     <?php if (isset($metrics['classes'])): ?><article class="stat-card"><div class="stat-top"><span class="stat-label"><?= e(t('Classes')) ?></span><span class="stat-icon accent-orange">▦</span></div><strong class="stat-value"><?= number_format((int) $metrics['classes']['value']) ?></strong><div class="stat-foot"><span class="stat-trend neutral"><?= e(t('Across all sections')) ?></span></div></article><?php endif; ?>
+    <?php if (isset($metrics['parents'])): ?><article class="stat-card"><div class="stat-top"><span class="stat-label"><?= e(t('Parents')) ?></span><span class="stat-icon accent-orange">♧</span></div><strong class="stat-value"><?= number_format((int) $metrics['parents']['value']) ?></strong><div class="stat-foot"><span class="stat-trend neutral"><?= e(t('Linked parent contacts')) ?></span></div></article><?php endif; ?>
     <?php if (isset($metrics['fees'])): ?><article class="stat-card"><div class="stat-top"><span class="stat-label"><?= e(t('Fees collected')) ?></span><span class="stat-icon accent-green">◇</span></div><strong class="stat-value money"><?= number_format((float) $metrics['fees']['value'], 0) ?><small> RWF</small></strong><div class="stat-foot"><span class="stat-trend neutral"><?= e(t('Payments recorded')) ?></span></div></article><?php endif; ?>
 </section>
 <?php if (can_access_page('students')): ?>

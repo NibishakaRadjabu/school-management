@@ -5,7 +5,7 @@ $studentQuery = $pdo->prepare('SELECT id, first_name, last_name, admission_numbe
 $studentQuery->execute([$schoolId]);
 $studentOptions = $studentQuery->fetchAll();
 $invoiceQuery = $pdo->prepare(
-    'SELECT i.id, i.description, i.amount, i.due_date, i.status, s.first_name, s.last_name, s.admission_number,
+    'SELECT i.id, i.student_id, i.description, i.amount, i.due_date, i.status, s.first_name, s.last_name, s.admission_number,
             COALESCE(SUM(p.amount), 0) AS paid
      FROM fee_invoices i JOIN students s ON s.id = i.student_id
      LEFT JOIN fee_payments p ON p.invoice_id = i.id
@@ -32,7 +32,7 @@ foreach ($invoices as $invoice) {
         <?php if ($studentOptions === []): ?><div class="empty-state compact"><p><?= e(t('Add students before creating invoices.')) ?></p><a href="index.php?page=students#add-student"><?= e(t('Go to students')) ?> →</a></div><?php else: ?>
         <form method="post" action="index.php?page=fees" class="form-stack compact-form">
             <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>"><input type="hidden" name="action" value="create_invoice">
-            <label><?= e(t('Student')) ?><select name="student_id" required><option value=""><?= e(t('Select a student')) ?></option><?php foreach ($studentOptions as $student): ?><option value="<?= (int) $student['id'] ?>"><?= e($student['first_name'] . ' ' . $student['last_name'] . ' · ' . $student['admission_number']) ?></option><?php endforeach; ?></select></label>
+            <label><?= e(t('Student')) ?><select name="student_id" required><option value=""><?= e(t('Select a student')) ?></option><option value="all"><?= e(t('All active students')) ?> (<?= count($studentOptions) ?>)</option><?php foreach ($studentOptions as $student): ?><option value="<?= (int) $student['id'] ?>"><?= e($student['first_name'] . ' ' . $student['last_name'] . ' · ' . $student['admission_number']) ?></option><?php endforeach; ?></select></label>
             <label><?= e(t('Description')) ?><input name="description" required maxlength="150" placeholder="<?= e(t('e.g. Term 1 school fees')) ?>"></label>
             <label><?= e(t('Amount (RWF)')) ?><input type="number" name="amount" required min="0.01" step="0.01"></label>
             <label><?= e(t('Due date')) ?><input type="date" name="due_date"></label>
@@ -57,8 +57,26 @@ foreach ($invoices as $invoice) {
 <section class="panel recent-panel">
     <div class="panel-heading"><div><h2><?= e(t('Fee register')) ?></h2><p><?= count($invoices) ?> <?= e(t('invoices')) ?></p></div></div>
     <?php if ($invoices === []): ?><div class="empty-state compact"><span class="empty-icon">◇</span><p><?= e(t('No invoices yet. Create a fee invoice above to get started.')) ?></p></div><?php else: ?>
-        <div class="table-wrap"><table><thead><tr><th><?= e(t('STUDENT')) ?></th><th><?= e(t('DESCRIPTION')) ?></th><th><?= e(t('AMOUNT')) ?></th><th><?= e(t('PAID')) ?></th><th><?= e(t('BALANCE')) ?></th><th><?= e(t('DUE DATE')) ?></th><th><?= e(t('STATUS')) ?></th></tr></thead><tbody>
-        <?php foreach ($invoices as $invoice): ?><tr><td><span class="cell-primary"><?= e($invoice['first_name'] . ' ' . $invoice['last_name']) ?></span><small class="cell-secondary"><?= e($invoice['admission_number']) ?></small></td><td><?= e($invoice['description']) ?></td><td><?= number_format((float) $invoice['amount'], 0) ?> RWF</td><td><?= number_format((float) $invoice['paid'], 0) ?> RWF</td><td><strong><?= number_format(max(0, (float) $invoice['amount'] - (float) $invoice['paid']), 0) ?> RWF</strong></td><td><?= $invoice['due_date'] ? e(localized_date($invoice['due_date'])) : '—' ?></td><td><span class="status-pill status-<?= e($invoice['status']) ?>"><?= e(t(ucfirst($invoice['status']))) ?></span></td></tr><?php endforeach; ?>
+        <div class="table-wrap"><table><thead><tr><th><?= e(t('STUDENT')) ?></th><th><?= e(t('DESCRIPTION')) ?></th><th><?= e(t('AMOUNT')) ?></th><th><?= e(t('PAID')) ?></th><th><?= e(t('BALANCE')) ?></th><th><?= e(t('DUE DATE')) ?></th><th><?= e(t('STATUS')) ?></th><?php if (current_user()['role'] === 'admin'): ?><th><?= e(t('ACTIONS')) ?></th><?php endif; ?></tr></thead><tbody>
+        <?php foreach ($invoices as $invoice): ?><tr><td><span class="cell-primary"><?= e($invoice['first_name'] . ' ' . $invoice['last_name']) ?></span><small class="cell-secondary"><?= e($invoice['admission_number']) ?></small></td><td><?= e($invoice['description']) ?></td><td><?= number_format((float) $invoice['amount'], 0) ?> RWF</td><td><?= number_format((float) $invoice['paid'], 0) ?> RWF</td><td><strong><?= number_format(max(0, (float) $invoice['amount'] - (float) $invoice['paid']), 0) ?> RWF</strong></td><td><?= $invoice['due_date'] ? e(localized_date($invoice['due_date'])) : '—' ?></td><td><span class="status-pill status-<?= e($invoice['status']) ?>"><?= e(t(ucfirst($invoice['status']))) ?></span></td>
+            <?php if (current_user()['role'] === 'admin'): ?><td><details class="student-edit"><summary class="text-link"><?= e(t('Edit invoice')) ?></summary>
+                <form method="post" action="index.php?page=fees" class="form-stack">
+                    <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>">
+                    <input type="hidden" name="action" value="update_invoice">
+                    <input type="hidden" name="invoice_id" value="<?= (int) $invoice['id'] ?>">
+                    <label><?= e(t('Description')) ?><input name="description" value="<?= e($invoice['description']) ?>" required maxlength="150"></label>
+                    <label><?= e(t('Amount (RWF)')) ?><input type="number" name="amount" value="<?= e((string) $invoice['amount']) ?>" required min="0.01" step="0.01"><small><?= e(t('Cannot be less than payments already recorded.')) ?></small></label>
+                    <label><?= e(t('Due date')) ?><input type="date" name="due_date" value="<?= e($invoice['due_date'] ?? '') ?>"></label>
+                    <button class="button button-secondary" type="submit"><?= e(t('Save changes')) ?></button>
+                </form>
+                <form method="post" action="index.php?page=fees" onsubmit="return confirm(<?= e(json_encode(t('Delete this invoice and all its payment records? This cannot be undone.'))) ?>)">
+                    <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>">
+                    <input type="hidden" name="action" value="delete_invoice">
+                    <input type="hidden" name="invoice_id" value="<?= (int) $invoice['id'] ?>">
+                    <button class="button button-danger" type="submit"><?= e(t('Delete invoice')) ?></button>
+                </form>
+            </details></td><?php endif; ?>
+        </tr><?php endforeach; ?>
         </tbody></table></div>
     <?php endif; ?>
 </section>

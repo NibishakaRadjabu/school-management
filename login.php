@@ -9,7 +9,7 @@ if (!school_is_registered()) {
 }
 if (is_logged_in()) {
     $destination = match ($_SESSION['user_role'] ?? '') {
-        'student' => 'index.php?page=profile',
+        'student' => 'index.php?page=student',
         'parent' => 'index.php?page=parent',
         default => 'index.php',
     };
@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['user_role'] = $user['role'];
         $_SESSION['school_name'] = $user['school_name'];
         redirect(match ($user['role']) {
-            'student' => 'index.php?page=profile',
+            'student' => 'index.php?page=student',
             'parent' => 'index.php?page=parent',
             default => 'index.php',
         });

@@ -268,6 +268,7 @@ CREATE TABLE IF NOT EXISTS announcements (
     message TEXT NOT NULL,
     channels JSON NOT NULL,
     audience VARCHAR(40) NOT NULL DEFAULT 'all_parents',
+    attachment_path VARCHAR(255) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_announcements_school FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE,
     CONSTRAINT fk_announcements_author FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE SET NULL
@@ -277,6 +278,8 @@ CREATE TABLE IF NOT EXISTS notification_outbox (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     school_id BIGINT UNSIGNED NOT NULL,
     announcement_id BIGINT UNSIGNED NULL,
+    fee_invoice_id BIGINT UNSIGNED NULL,
+    subject VARCHAR(180) NULL,
     channel ENUM('sms', 'email', 'app') NOT NULL,
     recipient VARCHAR(190) NOT NULL,
     message TEXT NOT NULL,
@@ -284,5 +287,30 @@ CREATE TABLE IF NOT EXISTS notification_outbox (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_outbox_school_status (school_id, status),
     CONSTRAINT fk_outbox_school FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE,
-    CONSTRAINT fk_outbox_announcement FOREIGN KEY (announcement_id) REFERENCES announcements(id) ON DELETE SET NULL
+    CONSTRAINT fk_outbox_announcement FOREIGN KEY (announcement_id) REFERENCES announcements(id) ON DELETE SET NULL,
+    CONSTRAINT fk_outbox_fee_invoice FOREIGN KEY (fee_invoice_id) REFERENCES fee_invoices(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS parent_school_conversations (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    school_id BIGINT UNSIGNED NOT NULL,
+    parent_user_id BIGINT UNSIGNED NOT NULL,
+    subject VARCHAR(180) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_parent_conversations_school_updated (school_id, updated_at),
+    KEY idx_parent_conversations_parent (parent_user_id, updated_at),
+    CONSTRAINT fk_parent_conversations_school FOREIGN KEY (school_id) REFERENCES schools(id) ON DELETE CASCADE,
+    CONSTRAINT fk_parent_conversations_parent FOREIGN KEY (parent_user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS parent_school_messages (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    conversation_id BIGINT UNSIGNED NOT NULL,
+    sender_id BIGINT UNSIGNED NULL,
+    body TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_parent_messages_conversation (conversation_id, id),
+    CONSTRAINT fk_parent_messages_conversation FOREIGN KEY (conversation_id) REFERENCES parent_school_conversations(id) ON DELETE CASCADE,
+    CONSTRAINT fk_parent_messages_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;

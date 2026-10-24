@@ -76,10 +76,13 @@ function ensure_smtp_mail_ready(): array
     return $configuration;
 }
 
-function send_application_email(string $recipient, string $subject, string $body): void
+function send_application_email(string $recipient, string $subject, string $body, ?string $attachmentPath = null): void
 {
     $configuration = smtp_mail_configuration();
     if ($configuration === null) {
+        if ($attachmentPath !== null) {
+            throw new RuntimeException('SMTP is required to send email attachments. Configure the MAIL_* environment variables.');
+        }
         $from = trim((string) getenv('MAIL_FROM'));
         if (filter_var($from, FILTER_VALIDATE_EMAIL) === false) {
             throw new RuntimeException('MAIL_FROM must be a valid email address.');
@@ -109,5 +112,8 @@ function send_application_email(string $recipient, string $subject, string $body
     $mailer->Subject = $subject;
     $mailer->Body = $body;
     $mailer->isHTML(false);
+    if ($attachmentPath !== null) {
+        $mailer->addAttachment($attachmentPath, 'announcement.pdf', \PHPMailer\PHPMailer\PHPMailer::ENCODING_BASE64, 'application/pdf');
+    }
     $mailer->send();
 }

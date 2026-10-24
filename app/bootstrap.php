@@ -229,7 +229,7 @@ function role_pages(string $role): array
         'dos', 'head_of_studies' => ['dashboard', 'students', 'classes', 'academics', 'attendance', 'profile'],
         'behavior_officer' => ['dashboard', 'students', 'attendance', 'communications', 'profile'],
         'parent' => ['parent', 'profile'],
-        'student' => ['profile'],
+        'student' => ['student', 'profile'],
         default => ['dashboard'],
     };
 }

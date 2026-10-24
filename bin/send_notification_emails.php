@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../app/mailer.php';
+require_once __DIR__ . '/../app/notifications.php';
 
 $limit = 50;
 foreach (array_slice($argv, 1) as $argument) {
@@ -24,7 +25,7 @@ try {
     for ($processed = 0; $processed < $limit; $processed++) {
         $pdo->beginTransaction();
         $query = $pdo->query(
-            "SELECT o.id, o.recipient, o.message, a.title AS announcement_title, s.name AS school_name
+            "SELECT o.id, o.recipient, o.subject, o.message, a.title AS announcement_title, a.attachment_path, s.name AS school_name
              FROM notification_outbox o
              LEFT JOIN announcements a ON a.id = o.announcement_id
              JOIN schools s ON s.id = o.school_id
@@ -41,7 +42,10 @@ try {
 
         $status = 'sent';
         try {
-            $subject = trim((string) ($notification['announcement_title'] ?? ''));
+            $subject = trim((string) ($notification['subject'] ?? ''));
+            if ($subject === '') {
+                $subject = trim((string) ($notification['announcement_title'] ?? ''));
+            }
             if ($subject === '') {
                 $subject = (string) $notification['school_name'];
             } else {
@@ -50,7 +54,10 @@ try {
             send_application_email(
                 (string) $notification['recipient'],
                 $subject,
-                (string) $notification['message']
+                (string) $notification['message'],
+                $notification['attachment_path'] !== null
+                    ? resolve_announcement_pdf((string) $notification['attachment_path'])
+                    : null
             );
             $sent++;
         } catch (Throwable $exception) {

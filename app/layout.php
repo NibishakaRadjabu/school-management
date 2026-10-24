@@ -37,6 +37,7 @@ function render_header(string $title, string $activePage): void
         'fees' => ['Fees', '◇'],
         'communications' => ['Communications', '↗'],
         'parent' => ['Parent portal', '♧'],
+        'student' => ['Student portal', '♙'],
     ];
     ?>
     <!doctype html>
@@ -65,6 +66,12 @@ function render_header(string $title, string $activePage): void
                         <span class="nav-icon"><?= e($icon) ?></span><span><?= e(t($label)) ?></span>
                     </a>
                 <?php endforeach; ?>
+                <?php if ($user['role'] === 'parent'): ?>
+                    <a class="nav-link parent-section-link" href="index.php?page=parent#behavior-records"><span class="nav-icon">✓</span><span><?= e(t('Behavior records')) ?></span></a>
+                    <a class="nav-link parent-section-link" href="index.php?page=parent#contact-school"><span class="nav-icon">✉</span><span><?= e(t('Contact the school')) ?></span></a>
+                    <a class="nav-link parent-section-link" href="index.php?page=parent#student-marks"><span class="nav-icon">✎</span><span><?= e(t('Student marks')) ?></span></a>
+                    <a class="nav-link parent-section-link" href="index.php?page=parent#fee-balances"><span class="nav-icon">◇</span><span><?= e(t('Fee balances')) ?></span></a>
+                <?php endif; ?>
             </nav>
             <div class="sidebar-bottom">
                 <div class="help-card">

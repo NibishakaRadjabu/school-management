@@ -70,6 +70,7 @@ h1, h2, h3, p { margin-top: 0; }
 .button-small { min-height: 34px; padding: 0 12px; }
 .button-wide { width: 100%; min-height: 46px; margin-top: 6px; }
 .stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 17px; margin-bottom: 20px; }
+.stat-grid-five { grid-template-columns: repeat(5, minmax(0,1fr)); }
 .stat-grid-three { grid-template-columns: repeat(3, minmax(0,1fr)); }
 .stat-grid-two { grid-template-columns: repeat(2, minmax(0,1fr)); }
 .stat-grid.stat-grid-single { grid-template-columns: minmax(0,1fr); }
@@ -344,6 +345,7 @@ tbody td strong { color: #485062; font-size: 11px; font-weight: 600; }
 .login-card .button-wide { margin-top: 3px; }
 
 @media (max-width: 1100px) {
+    .stat-grid-five { grid-template-columns: repeat(3,minmax(0,1fr)); }
     .sidebar { width: 220px; }
     .main-area { margin-left: 220px; }
     .topbar { padding: 0 25px; }
@@ -382,6 +384,7 @@ tbody td strong { color: #485062; font-size: 11px; font-weight: 600; }
     .page-heading p { max-width: 290px; line-height: 1.55; }
     .page-heading > .button { align-self: center; min-height: 36px; gap: 6px; padding: 0 10px; font-size: 10px; white-space: nowrap; }
     .stat-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    .stat-grid-five { grid-template-columns: repeat(2,minmax(0,1fr)); }
     .stat-grid-three { grid-template-columns: repeat(2,minmax(0,1fr)); }
     .stat-card { padding: 14px 12px; }
     .stat-value { font-size: 23px; }

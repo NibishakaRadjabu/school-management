@@ -18,13 +18,17 @@ $behaviorScoreColumn = $canManageBehavior
     : '';
 $studentsQuery = $pdo->prepare(
     'SELECT s.id, s.user_id, s.class_id, s.admission_number, s.index_code, s.first_name, s.last_name, s.date_of_birth, s.gender, s.enrollment_date, s.status, c.name AS class_name' . $behaviorScoreColumn . ',
-            g.name AS guardian_name, g.phone AS guardian_phone
+            g.name AS guardian_name, g.email AS guardian_email, g.phone AS guardian_phone,
+            g.user_id AS parent_user_id, parent_user.is_active AS parent_account_active,
+            sg.relationship AS guardian_relationship
      FROM students s LEFT JOIN classes c ON c.id = s.class_id
      LEFT JOIN student_guardians sg ON sg.student_id = s.id AND sg.is_primary = 1
      LEFT JOIN guardians g ON g.id = sg.guardian_id
+     LEFT JOIN users parent_user ON parent_user.id = g.user_id AND parent_user.school_id = g.school_id
      WHERE s.school_id = ? AND (? = "" OR CONCAT(s.first_name, " ", s.last_name, " ", s.admission_number) LIKE ?)
      ORDER BY s.created_at DESC'
 );
+
 $studentsQuery->execute([$schoolId, $search, '%' . $search . '%']);
 $students = $studentsQuery->fetchAll();
 $studentsWithoutAccounts = array_filter($students, static fn(array $student): bool => $student['user_id'] === null);
@@ -204,7 +208,10 @@ document.querySelectorAll('.signature-grid').forEach((group) => {
                     <div><small><?= e(t('Class')) ?></small><strong><?= e($student['class_name'] ?? t('Unassigned')) ?></strong></div>
                     <div><small><?= e(t('Enrollment date')) ?></small><strong><?= e(localized_date($student['enrollment_date'])) ?></strong></div>
                     <?php if ($canManageBehavior): ?><div><small><?= e(t('Behavior points')) ?></small><strong><?= (int) $student['behavior_score'] ?> / 100</strong></div><?php endif; ?>
-                    <div><small><?= e(t('Parent or guardian')) ?></small><strong><?= e($student['guardian_name'] ?? '—') ?></strong><?php if ($student['guardian_phone']): ?><span><?= e($student['guardian_phone']) ?></span><?php endif; ?></div>
+                    <div><small><?= e(t('Parent or guardian')) ?></small><strong><?= e($student['guardian_name'] ?? '—') ?></strong><?php if ($student['guardian_phone']): ?><span><?= e($student['guardian_phone']) ?></span><?php endif; ?>
+                        <?php if ($student['parent_user_id'] !== null): ?><span class="status-pill status-<?= e((bool) $student['parent_account_active'] ? 'active' : 'inactive') ?>"><?= e(t((bool) $student['parent_account_active'] ? 'Parent account active' : 'Parent account pending')) ?></span>
+                        <?php elseif ($student['guardian_email']): ?><span><?= e(t('Parent account not created')) ?></span><?php endif; ?>
+                    </div>
                 </div>
                 <?php if (can_access_page('academics') || $canEditStudents): ?><div class="profile-card-actions">
                     <?php if (can_access_page('academics')): ?><a class="text-link" href="report_card.php?student_id=<?= (int) $student['id'] ?>"><?= e(t('Report card')) ?> →</a><?php endif; ?>
@@ -219,9 +226,33 @@ document.querySelectorAll('.signature-grid').forEach((group) => {
                             <label><?= e(t('Gender')) ?><select name="gender"><option value=""><?= e(t('Prefer not to say')) ?></option><option value="female" <?= $student['gender'] === 'female' ? 'selected' : '' ?>><?= e(t('Female')) ?></option><option value="male" <?= $student['gender'] === 'male' ? 'selected' : '' ?>><?= e(t('Male')) ?></option><option value="other" <?= $student['gender'] === 'other' ? 'selected' : '' ?>><?= e(t('Other')) ?></option></select></label>
                             <label><?= e(t('Enrollment date')) ?><input type="date" name="enrollment_date" value="<?= e($student['enrollment_date']) ?>" required></label>
                             <label><?= e(t('Status')) ?><select name="status" required><option value="active" <?= $student['status'] === 'active' ? 'selected' : '' ?>><?= e(t('Active')) ?></option><option value="inactive" <?= $student['status'] === 'inactive' ? 'selected' : '' ?>><?= e(t('Inactive')) ?></option><option value="graduated" <?= $student['status'] === 'graduated' ? 'selected' : '' ?>><?= e(t('Graduated')) ?></option></select></label>
+                            <div class="form-divider"></div><h3 class="form-section-title inline-section-title"><?= e(t('Parent or guardian')) ?> <span><?= e(t('Update the student’s primary contact details.')) ?></span></h3>
+                            <div class="form-grid form-grid-three">
+                                <label><?= e(t('Full name')) ?><input name="guardian_name" value="<?= e($student['guardian_name'] ?? '') ?>" maxlength="150"></label>
+                                <label><?= e(t('Relationship')) ?><input name="guardian_relationship" value="<?= e($student['guardian_relationship'] ?? '') ?>" maxlength="40" placeholder="<?= e(t('e.g. Parent')) ?>"></label>
+                                <label><?= e(t('Phone number')) ?><input name="guardian_phone" value="<?= e($student['guardian_phone'] ?? '') ?>" maxlength="40" placeholder="+250 700 000 000"></label>
+                                <label><?= e(t('Email address')) ?><input type="email" name="guardian_email" value="<?= e($student['guardian_email'] ?? '') ?>" maxlength="190"></label>
+                            </div>
                             <button class="button button-secondary" type="submit"><?= e(t('Save changes')) ?></button>
                         </form>
                     </details><?php endif; ?>
+                    <?php if (current_user()['role'] === 'admin'): ?>
+                        <?php if ($student['parent_user_id'] !== null && !(bool) $student['parent_account_active']): ?>
+                            <form method="post" action="index.php?page=students" class="form-stack">
+                                <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>">
+                                <input type="hidden" name="action" value="set_parent_password">
+                                <input type="hidden" name="parent_user_id" value="<?= (int) $student['parent_user_id'] ?>">
+                                <label><?= e(t('Set parent initial password')) ?><input type="password" name="password" required minlength="10" autocomplete="new-password"><small><?= e(t('At least 10 characters. Share it with the parent securely.')) ?></small></label>
+                                <button class="button button-secondary" type="submit"><?= e(t('Activate parent account')) ?></button>
+                            </form>
+                        <?php endif; ?>
+                        <form method="post" action="index.php?page=students" onsubmit="return confirm(<?= e(json_encode(t('Delete this student, their sign-in account, and all associated school records? This cannot be undone.'))) ?>)">
+                            <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>">
+                            <input type="hidden" name="action" value="delete_student">
+                            <input type="hidden" name="student_id" value="<?= (int) $student['id'] ?>">
+                            <button class="button button-danger" type="submit"><?= e(t('Delete student')) ?></button>
+                        </form>
+                    <?php endif; ?>
                 </div><?php endif; ?>
             </article><?php endforeach; ?>
         </div>

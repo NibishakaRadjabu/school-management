@@ -4,6 +4,9 @@ declare(strict_types=1);
 require_once __DIR__ . '/app/bootstrap.php';
 require_once __DIR__ . '/app/layout.php';
 require_once __DIR__ . '/app/behavior.php';
+require_once __DIR__ . '/app/mailer.php';
+require_once __DIR__ . '/app/parent_accounts.php';
+require_once __DIR__ . '/app/notifications.php';
 
 if (!school_is_registered()) {
     redirect('setup.php');
@@ -22,9 +25,10 @@ $pages = [
     'communications' => ['Communications', __DIR__ . '/pages/communications.php'],
     'profile' => ['My profile', __DIR__ . '/pages/profile.php'],
     'parent' => ['Parent portal', __DIR__ . '/pages/parent.php'],
+    'student' => ['Student portal', __DIR__ . '/pages/student.php'],
 ];
 $defaultPage = match ($_SESSION['user_role'] ?? '') {
-    'student' => 'profile',
+    'student' => 'student',
     'parent' => 'parent',
     default => 'dashboard',
 };
@@ -47,6 +51,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'create_class' => 'classes',
         'create_student' => 'students',
         'update_student' => 'students',
+        'delete_student' => 'students',
+        'set_parent_password' => 'students',
         'create_student_account' => 'students',
         'deduct_behavior_points' => 'students',
         'create_teacher' => 'teachers',
@@ -56,6 +62,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'update_profile' => 'profile',
         'delete_my_account' => 'profile',
         'link_parent_child' => 'parent',
+        'create_parent_conversation' => 'parent',
+        'reply_parent_conversation' => $user['role'] === 'parent' ? 'parent' : 'communications',
         'create_subject' => 'academics',
         'create_exam' => 'academics',
         'save_mark' => 'academics',
@@ -63,14 +71,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'create_timetable' => 'academics',
         'save_attendance' => 'attendance',
         'create_invoice' => 'fees',
+        'update_invoice' => 'fees',
+        'delete_invoice' => 'fees',
         'record_payment' => 'fees',
         'create_announcement' => 'communications',
+        'update_announcement' => 'communications',
+        'delete_announcement' => 'communications',
     ];
     if (isset($actionPages[$action])) {
         require_page_access($actionPages[$action]);
     }
     $returnPage = $page;
+    $returnConversationId = filter_var($_POST['conversation_id'] ?? null, FILTER_VALIDATE_INT);
+    $returnQuery = $action === 'reply_parent_conversation' && $returnConversationId !== false && $returnConversationId !== null && $returnConversationId > 0
+        ? '&conversation=' . (int) $returnConversationId
+        : '';
     $newProfilePicture = null;
+    $newAnnouncementPdf = null;
+    $oldAnnouncementPdf = null;
 
     try {
         switch ($action) {
@@ -109,6 +127,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $pdo->commit();
                 flash('Student linked to your parent account.');
+                break;
+
+            case 'create_parent_conversation':
+                if ($user['role'] !== 'parent') {
+                    http_response_code(403);
+                    exit(e(t('Only parent accounts can start a school conversation.')));
+                }
+                $subject = trim((string) ($_POST['subject'] ?? ''));
+                $message = trim((string) ($_POST['message'] ?? ''));
+                if (preg_match('/\A.{1,180}\z/us', $subject) !== 1 || strlen($subject) > 720 || preg_match('/\A.{1,4000}\z/us', $message) !== 1 || strlen($message) > 16000) {
+                    flash('Enter a subject and a message of up to 4,000 characters.', 'error');
+                    break;
+                }
+                $pdo->beginTransaction();
+                $conversation = $pdo->prepare('INSERT INTO parent_school_conversations (school_id, parent_user_id, subject) VALUES (?, ?, ?)');
+                $conversation->execute([$user['school_id'], $user['id'], $subject]);
+                $conversationId = (int) $pdo->lastInsertId();
+                $newMessage = $pdo->prepare('INSERT INTO parent_school_messages (conversation_id, sender_id, body) VALUES (?, ?, ?)');
+                $newMessage->execute([$conversationId, $user['id'], $message]);
+                $pdo->commit();
+                flash('Your message has been sent to the school.');
+                break;
+
+            case 'reply_parent_conversation':
+                if (!in_array($user['role'], ['parent', 'admin', 'behavior_officer'], true)) {
+                    http_response_code(403);
+                    exit(e(t('You do not have permission to reply to this conversation.')));
+                }
+                $conversationId = filter_var($_POST['conversation_id'] ?? null, FILTER_VALIDATE_INT);
+                $message = trim((string) ($_POST['message'] ?? ''));
+                if ($conversationId === false || $conversationId === null || $conversationId < 1 || preg_match('/\A.{1,4000}\z/us', $message) !== 1 || strlen($message) > 16000) {
+                    flash('Enter a reply of up to 4,000 characters.', 'error');
+                    break;
+                }
+                $pdo->beginTransaction();
+                $conversationCheck = $pdo->prepare(
+                    'SELECT id, parent_user_id FROM parent_school_conversations WHERE id = ? AND school_id = ? FOR UPDATE'
+                );
+                $conversationCheck->execute([$conversationId, $user['school_id']]);
+                $conversation = $conversationCheck->fetch();
+                if (!$conversation || ($user['role'] === 'parent' && (int) $conversation['parent_user_id'] !== $user['id'])) {
+                    $pdo->rollBack();
+                    flash('That conversation could not be found.', 'error');
+                    break;
+                }
+                $reply = $pdo->prepare('INSERT INTO parent_school_messages (conversation_id, sender_id, body) VALUES (?, ?, ?)');
+                $reply->execute([$conversationId, $user['id'], $message]);
+                $pdo->prepare('UPDATE parent_school_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?')->execute([$conversationId]);
+                $pdo->commit();
+                flash('Your reply has been sent.');
                 break;
 
             case 'create_section':
@@ -197,6 +265,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
                 $studentId = (int) $pdo->lastInsertId();
                 $guardianName = trim((string) ($_POST['guardian_name'] ?? ''));
+                $parentInvitation = null;
                 if ($guardianName !== '') {
                     $guardianEmail = trim((string) ($_POST['guardian_email'] ?? ''));
                     $guardianPhone = trim((string) ($_POST['guardian_phone'] ?? ''));
@@ -225,9 +294,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     $link = $pdo->prepare('INSERT INTO student_guardians (student_id, guardian_id, relationship, is_primary) VALUES (?, ?, ?, TRUE)');
                     $link->execute([$studentId, $guardianId, trim((string) ($_POST['guardian_relationship'] ?? '')) ?: null]);
+                    $parentInvitation = provision_parent_account($pdo, (int) $user['school_id'], $guardianId);
                 }
                 $pdo->commit();
-                flash(t('Student added to the register. Index code: {{code}}', ['{{code}}' => $indexCode]));
+                $message = t('Student added to the register. Index code: {{code}}', ['{{code}}' => $indexCode]);
+                if ($parentInvitation !== null) {
+                    try {
+                        $invitationSent = send_parent_setup_invitation($parentInvitation);
+                        $message .= ' ' . t($invitationSent
+                            ? 'A parent account was created and a setup link was emailed.'
+                            : 'A parent account was created; an administrator must set its initial password because email is not configured.');
+                    } catch (Throwable $mailException) {
+                        error_log('Parent account setup email failed: ' . $mailException->getMessage());
+                        $message .= ' ' . t('The parent account was created, but its setup email could not be sent. An administrator must set its initial password.');
+                    }
+                }
+                flash($message);
                 break;
 
             case 'update_student':
@@ -244,6 +326,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $gender = (string) ($_POST['gender'] ?? '');
                 $enrollmentDate = (string) ($_POST['enrollment_date'] ?? '');
                 $status = (string) ($_POST['status'] ?? '');
+                $guardianName = trim((string) ($_POST['guardian_name'] ?? ''));
+                $guardianEmail = trim((string) ($_POST['guardian_email'] ?? ''));
+                $guardianPhone = trim((string) ($_POST['guardian_phone'] ?? ''));
+                $guardianRelationship = trim((string) ($_POST['guardian_relationship'] ?? ''));
+                $guardianProvided = $guardianName !== '' || $guardianEmail !== '' || $guardianPhone !== '' || $guardianRelationship !== '';
+                $parentInvitation = null;
                 $validDate = static function (string $date): bool {
                     if (preg_match('/\A(\d{4})-(\d{2})-(\d{2})\z/', $date, $matches) !== 1) {
                         return false;
@@ -256,8 +344,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     || ($birthDate !== '' && !$validDate($birthDate))
                     || !$validDate($enrollmentDate)
                     || !in_array($gender, ['', 'female', 'male', 'other'], true)
-                    || !in_array($status, ['active', 'inactive', 'graduated'], true)) {
-                    flash('Enter valid student details before saving changes.', 'error');
+                    || !in_array($status, ['active', 'inactive', 'graduated'], true)
+                    || ($guardianProvided && ($guardianName === '' || strlen($guardianName) > 150 || strlen($guardianRelationship) > 40 || strlen($guardianPhone) > 40 || ($guardianEmail !== '' && !filter_var($guardianEmail, FILTER_VALIDATE_EMAIL))))) {
+                    flash('Enter valid student details before saving changes, and use a valid guardian name and contact information.', 'error');
                     break;
                 }
                 if ($classId > 0) {
@@ -299,8 +388,140 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $updateAccount = $pdo->prepare('UPDATE users SET name = ? WHERE id = ? AND school_id = ?');
                     $updateAccount->execute([$firstName . ' ' . $lastName, $studentUserId, $user['school_id']]);
                 }
+                if ($guardianProvided) {
+                    $guardianLookup = $pdo->prepare(
+                        'SELECT id FROM guardians WHERE school_id = ?
+                         AND ((? <> "" AND email = ?) OR (? <> "" AND phone = ?))
+                         LIMIT 1'
+                    );
+                    $guardianLookup->execute([
+                        $user['school_id'],
+                        $guardianEmail,
+                        $guardianEmail,
+                        $guardianPhone,
+                        $guardianPhone,
+                    ]);
+                    $guardianId = (int) $guardianLookup->fetchColumn();
+                    if ($guardianId === 0) {
+                        $guardian = $pdo->prepare('INSERT INTO guardians (school_id, name, email, phone) VALUES (?, ?, ?, ?)');
+                        $guardian->execute([
+                            $user['school_id'],
+                            $guardianName,
+                            $guardianEmail ?: null,
+                            $guardianPhone ?: null,
+                        ]);
+                        $guardianId = (int) $pdo->lastInsertId();
+                    } else {
+                        $guardianUpdate = $pdo->prepare('UPDATE guardians SET name = ?, email = ?, phone = ? WHERE id = ? AND school_id = ?');
+                        $guardianUpdate->execute([$guardianName, $guardianEmail ?: null, $guardianPhone ?: null, $guardianId, $user['school_id']]);
+                    }
+                    $linkCheck = $pdo->prepare('SELECT guardian_id FROM student_guardians WHERE student_id = ? AND guardian_id = ? LIMIT 1');
+                    $linkCheck->execute([$studentId, $guardianId]);
+                    if ($linkCheck->fetchColumn() === false) {
+                        $link = $pdo->prepare('INSERT INTO student_guardians (student_id, guardian_id, relationship, is_primary) VALUES (?, ?, ?, TRUE)');
+                        $link->execute([$studentId, $guardianId, $guardianRelationship ?: null]);
+                    } else {
+                        $link = $pdo->prepare('UPDATE student_guardians SET relationship = ?, is_primary = TRUE WHERE student_id = ? AND guardian_id = ?');
+                        $link->execute([$guardianRelationship ?: null, $studentId, $guardianId]);
+                    }
+                    $pdo->prepare('UPDATE student_guardians SET is_primary = CASE WHEN student_id = ? AND guardian_id = ? THEN TRUE ELSE FALSE END WHERE student_id = ?')->execute([$studentId, $guardianId, $studentId]);
+                    $parentInvitation = provision_parent_account($pdo, (int) $user['school_id'], $guardianId);
+                }
                 $pdo->commit();
-                flash('Student record updated.');
+                $message = t('Student record updated.');
+                if ($parentInvitation !== null) {
+                    try {
+                        $invitationSent = send_parent_setup_invitation($parentInvitation);
+                        $message .= ' ' . t($invitationSent
+                            ? 'A parent account was created and a setup link was emailed.'
+                            : 'A parent account was created; an administrator must set its initial password because email is not configured.');
+                    } catch (Throwable $mailException) {
+                        error_log('Parent account setup email failed: ' . $mailException->getMessage());
+                        $message .= ' ' . t('The parent account was created, but its setup email could not be sent. An administrator must set its initial password.');
+                    }
+                }
+                flash($message);
+                break;
+
+            case 'delete_student':
+                require_admin();
+                $studentId = filter_var($_POST['student_id'] ?? null, FILTER_VALIDATE_INT);
+                if ($studentId === false || $studentId === null || $studentId < 1) {
+                    flash('The student record could not be found in this school.', 'error');
+                    break;
+                }
+                $pdo->beginTransaction();
+                $studentCheck = $pdo->prepare(
+                    'SELECT s.user_id, r.name AS account_role
+                     FROM students s
+                     LEFT JOIN users u ON u.id = s.user_id AND u.school_id = s.school_id
+                     LEFT JOIN roles r ON r.id = u.role_id
+                     WHERE s.id = ? AND s.school_id = ?
+                     FOR UPDATE'
+                );
+                $studentCheck->execute([$studentId, $user['school_id']]);
+                $studentRecord = $studentCheck->fetch();
+                if (!$studentRecord) {
+                    $pdo->rollBack();
+                    flash('The student record could not be found in this school.', 'error');
+                    break;
+                }
+                if ($studentRecord['user_id'] !== null && $studentRecord['account_role'] !== 'student') {
+                    throw new RuntimeException('The linked account is not a student account. Contact support before deleting this record.');
+                }
+                $deleteStudent = $pdo->prepare('DELETE FROM students WHERE id = ? AND school_id = ?');
+                $deleteStudent->execute([$studentId, $user['school_id']]);
+                if ($deleteStudent->rowCount() !== 1) {
+                    throw new RuntimeException('The student record could not be deleted. Please try again.');
+                }
+                if ($studentRecord['user_id'] !== null) {
+                    $deleteAccount = $pdo->prepare(
+                        'DELETE u FROM users u JOIN roles r ON r.id = u.role_id
+                         WHERE u.id = ? AND u.school_id = ? AND r.name = "student"'
+                    );
+                    $deleteAccount->execute([$studentRecord['user_id'], $user['school_id']]);
+                    if ($deleteAccount->rowCount() !== 1) {
+                        throw new RuntimeException('The student account could not be deleted. No changes were saved.');
+                    }
+                }
+                $pdo->commit();
+                flash('Student record and sign-in account deleted.');
+                break;
+
+            case 'set_parent_password':
+                require_admin();
+                $parentUserId = filter_var($_POST['parent_user_id'] ?? null, FILTER_VALIDATE_INT);
+                $password = (string) ($_POST['password'] ?? '');
+                if ($parentUserId === false || $parentUserId === null || $parentUserId < 1 || strlen($password) < 10) {
+                    flash('Choose a parent account and set a password with at least 10 characters.', 'error');
+                    break;
+                }
+                $pdo->beginTransaction();
+                $parentCheck = $pdo->prepare(
+                    'SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id
+                     WHERE u.id = ? AND u.school_id = ? AND r.name = "parent" AND u.is_active = 0
+                       AND EXISTS (
+                           SELECT 1 FROM guardians g
+                           WHERE g.user_id = u.id AND g.school_id = u.school_id
+                       )
+                     FOR UPDATE'
+                );
+                $parentCheck->execute([$parentUserId, $user['school_id']]);
+                if (!$parentCheck->fetchColumn()) {
+                    $pdo->rollBack();
+                    flash('The pending parent account could not be found in this school.', 'error');
+                    break;
+                }
+                $activateParent = $pdo->prepare('UPDATE users SET password_hash = ?, is_active = 1 WHERE id = ? AND school_id = ? AND is_active = 0');
+                $activateParent->execute([password_hash($password, PASSWORD_DEFAULT), $parentUserId, $user['school_id']]);
+                if ($activateParent->rowCount() !== 1) {
+                    $pdo->rollBack();
+                    flash('The parent account could not be activated. Please try again.', 'error');
+                    break;
+                }
+                $pdo->prepare('DELETE FROM parent_email_verifications WHERE user_id = ?')->execute([$parentUserId]);
+                $pdo->commit();
+                flash('Parent account activated. Share the initial password with the parent securely.');
                 break;
 
             case 'deduct_behavior_points':
@@ -784,19 +1005,177 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
 
             case 'create_invoice':
-                $studentId = (int) ($_POST['student_id'] ?? 0);
+                $studentSelection = (string) ($_POST['student_id'] ?? '');
                 $description = trim((string) ($_POST['description'] ?? ''));
                 $amount = filter_var($_POST['amount'] ?? null, FILTER_VALIDATE_FLOAT);
                 $dueDate = trim((string) ($_POST['due_date'] ?? ''));
-                $studentCheck = $pdo->prepare('SELECT id FROM students WHERE id = ? AND school_id = ?');
-                $studentCheck->execute([$studentId, $user['school_id']]);
-                if (!$studentCheck->fetchColumn() || $description === '' || $amount === false || $amount <= 0) {
+                if ($studentSelection === 'all') {
+                    $studentCheck = $pdo->prepare(
+                        'SELECT id, first_name, last_name FROM students
+                         WHERE school_id = ? AND status = "active" ORDER BY id'
+                    );
+                    $studentCheck->execute([$user['school_id']]);
+                    $invoiceStudents = $studentCheck->fetchAll();
+                } else {
+                    $studentId = filter_var($studentSelection, FILTER_VALIDATE_INT);
+                    $invoiceStudents = [];
+                    if ($studentId !== false && $studentId !== null && $studentId > 0) {
+                        $studentCheck = $pdo->prepare(
+                            'SELECT id, first_name, last_name FROM students
+                             WHERE id = ? AND school_id = ? AND status = "active"'
+                        );
+                        $studentCheck->execute([$studentId, $user['school_id']]);
+                        $student = $studentCheck->fetch();
+                        if ($student) {
+                            $invoiceStudents[] = $student;
+                        }
+                    }
+                }
+                if ($invoiceStudents === [] || $description === '' || $amount === false || $amount <= 0) {
                     flash('Choose a student, enter a fee description, and provide a valid amount.', 'error');
                     break;
                 }
+                $pdo->beginTransaction();
                 $insert = $pdo->prepare('INSERT INTO fee_invoices (school_id, student_id, description, amount, due_date) VALUES (?, ?, ?, ?, ?)');
-                $insert->execute([$user['school_id'], $studentId, $description, $amount, $dueDate !== '' ? $dueDate : null]);
-                flash('Fee invoice created.');
+                $balanceQuery = $pdo->prepare(
+                    'SELECT COALESCE(SUM(i.amount - COALESCE(payments.paid, 0)), 0)
+                     FROM fee_invoices i
+                     LEFT JOIN (
+                         SELECT invoice_id, SUM(amount) AS paid FROM fee_payments GROUP BY invoice_id
+                     ) payments ON payments.invoice_id = i.id
+                     WHERE i.school_id = ? AND i.student_id = ?'
+                );
+                $queuedCount = 0;
+                foreach ($invoiceStudents as $student) {
+                    $studentId = (int) $student['id'];
+                    $insert->execute([$user['school_id'], $studentId, $description, $amount, $dueDate !== '' ? $dueDate : null]);
+                    $invoiceId = (int) $pdo->lastInsertId();
+                    $studentName = $student['first_name'] . ' ' . $student['last_name'];
+                    $balanceQuery->execute([$user['school_id'], $studentId]);
+                    $totalBalance = (float) $balanceQuery->fetchColumn();
+                    $dueNotice = t('A new fee invoice has been created for {{student}}.', ['{{student}}' => $studentName]) . "\n"
+                        . t('Fee description: {{description}}', ['{{description}}' => $description]) . "\n"
+                        . t('Invoice amount: {{amount}} RWF', ['{{amount}}' => number_format((float) $amount, 2)]) . "\n"
+                        . t('Total outstanding balance: {{amount}} RWF', ['{{amount}}' => number_format($totalBalance, 2)]);
+                    if ($dueDate !== '') {
+                        $dueNotice .= "\n" . t('Due date: {{date}}', ['{{date}}' => $dueDate]);
+                    }
+                    $queuedCount += queue_parent_fee_notice(
+                        $pdo,
+                        (int) $user['school_id'],
+                        $studentId,
+                        t('Fee balance due: {{student}}', ['{{student}}' => $studentName]),
+                        $dueNotice,
+                        $invoiceId
+                    );
+                }
+                $pdo->commit();
+                flash(t('Fee invoices created for {{count}} student(s). Parent notification(s) queued: {{notices}}.', [
+                    '{{count}}' => (string) count($invoiceStudents),
+                    '{{notices}}' => (string) $queuedCount,
+                ]));
+                break;
+
+            case 'update_invoice':
+                require_admin();
+                $invoiceId = filter_var($_POST['invoice_id'] ?? null, FILTER_VALIDATE_INT);
+                $description = trim((string) ($_POST['description'] ?? ''));
+                $amount = filter_var($_POST['amount'] ?? null, FILTER_VALIDATE_FLOAT);
+                $dueDate = trim((string) ($_POST['due_date'] ?? ''));
+                $validDueDate = $dueDate === '' || (
+                    preg_match('/\A(\d{4})-(\d{2})-(\d{2})\z/', $dueDate, $dateParts) === 1
+                    && checkdate((int) $dateParts[2], (int) $dateParts[3], (int) $dateParts[1])
+                );
+                if ($invoiceId === false || $invoiceId === null || $invoiceId < 1 || $description === ''
+                    || strlen($description) > 150 || $amount === false || $amount <= 0 || !$validDueDate) {
+                    flash('Enter a valid fee description, amount, and due date.', 'error');
+                    break;
+                }
+                $pdo->beginTransaction();
+                $invoiceCheck = $pdo->prepare(
+                    'SELECT i.student_id, i.amount, s.first_name, s.last_name
+                     FROM fee_invoices i JOIN students s ON s.id = i.student_id
+                     WHERE i.id = ? AND i.school_id = ? FOR UPDATE'
+                );
+                $invoiceCheck->execute([$invoiceId, $user['school_id']]);
+                $invoice = $invoiceCheck->fetch();
+                if (!$invoice) {
+                    $pdo->rollBack();
+                    flash('The fee invoice could not be found in this school.', 'error');
+                    break;
+                }
+                $paidQuery = $pdo->prepare('SELECT COALESCE(SUM(amount), 0) FROM fee_payments WHERE invoice_id = ?');
+                $paidQuery->execute([$invoiceId]);
+                $paidAmount = (float) $paidQuery->fetchColumn();
+                if ($amount + 0.00001 < $paidAmount) {
+                    $pdo->rollBack();
+                    flash('The invoice amount cannot be less than the payments already recorded.', 'error');
+                    break;
+                }
+                $updatedStatus = $paidAmount <= 0 ? 'unpaid' : ($paidAmount >= $amount ? 'paid' : 'partial');
+                $updateInvoice = $pdo->prepare(
+                    'UPDATE fee_invoices SET description = ?, amount = ?, due_date = ?, status = ?
+                     WHERE id = ? AND school_id = ?'
+                );
+                $updateInvoice->execute([$description, $amount, $dueDate !== '' ? $dueDate : null, $updatedStatus, $invoiceId, $user['school_id']]);
+                $studentName = $invoice['first_name'] . ' ' . $invoice['last_name'];
+                $balanceQuery = $pdo->prepare(
+                    'SELECT COALESCE(SUM(i.amount - COALESCE(payments.paid, 0)), 0)
+                     FROM fee_invoices i
+                     LEFT JOIN (
+                         SELECT invoice_id, SUM(amount) AS paid FROM fee_payments GROUP BY invoice_id
+                     ) payments ON payments.invoice_id = i.id
+                     WHERE i.school_id = ? AND i.student_id = ?'
+                );
+                $balanceQuery->execute([$user['school_id'], $invoice['student_id']]);
+                $totalBalance = (float) $balanceQuery->fetchColumn();
+                $notice = t('A fee invoice was updated for {{student}}.', ['{{student}}' => $studentName]) . "\n"
+                    . t('Fee description: {{description}}', ['{{description}}' => $description]) . "\n"
+                    . t('Invoice amount: {{amount}} RWF', ['{{amount}}' => number_format((float) $amount, 2)]) . "\n"
+                    . t('Total outstanding balance: {{amount}} RWF', ['{{amount}}' => number_format($totalBalance, 2)]);
+                if ($dueDate !== '') {
+                    $notice .= "\n" . t('Due date: {{date}}', ['{{date}}' => $dueDate]);
+                }
+                $queuedCount = queue_parent_fee_notice(
+                    $pdo,
+                    (int) $user['school_id'],
+                    (int) $invoice['student_id'],
+                    t('Fee invoice updated: {{student}}', ['{{student}}' => $studentName]),
+                    $notice,
+                    (int) $invoiceId
+                );
+                $pdo->commit();
+                flash(t('Fee invoice updated. Parent notification(s) queued: {{count}}.', ['{{count}}' => (string) $queuedCount]));
+                break;
+
+            case 'delete_invoice':
+                require_admin();
+                $invoiceId = filter_var($_POST['invoice_id'] ?? null, FILTER_VALIDATE_INT);
+                if ($invoiceId === false || $invoiceId === null || $invoiceId < 1) {
+                    flash('The fee invoice could not be found in this school.', 'error');
+                    break;
+                }
+                $pdo->beginTransaction();
+                $lockInvoice = $pdo->prepare('SELECT id FROM fee_invoices WHERE id = ? AND school_id = ? FOR UPDATE');
+                $lockInvoice->execute([$invoiceId, $user['school_id']]);
+                if (!$lockInvoice->fetchColumn()) {
+                    $pdo->rollBack();
+                    flash('The fee invoice could not be found in this school.', 'error');
+                    break;
+                }
+                $cancelFeeNotices = $pdo->prepare(
+                    'DELETE FROM notification_outbox WHERE fee_invoice_id = ? AND school_id = ? AND status = "queued"'
+                );
+                $cancelFeeNotices->execute([$invoiceId, $user['school_id']]);
+                $deleteInvoice = $pdo->prepare('DELETE FROM fee_invoices WHERE id = ? AND school_id = ?');
+                $deleteInvoice->execute([$invoiceId, $user['school_id']]);
+                if ($deleteInvoice->rowCount() !== 1) {
+                    $pdo->rollBack();
+                    flash('The fee invoice could not be found in this school.', 'error');
+                    break;
+                }
+                $pdo->commit();
+                flash('Fee invoice and its payment records deleted.');
                 break;
 
             case 'record_payment':
@@ -805,16 +1184,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $paymentDate = (string) ($_POST['payment_date'] ?? '');
                 $pdo->beginTransaction();
                 $invoiceQuery = $pdo->prepare(
-                    'SELECT amount FROM fee_invoices WHERE id = ? AND school_id = ? FOR UPDATE'
+                    'SELECT i.amount, i.student_id, i.description, s.first_name, s.last_name
+                     FROM fee_invoices i JOIN students s ON s.id = i.student_id
+                     WHERE i.id = ? AND i.school_id = ? FOR UPDATE'
                 );
                 $invoiceQuery->execute([$invoiceId, $user['school_id']]);
-                $invoiceAmount = $invoiceQuery->fetchColumn();
+                $invoice = $invoiceQuery->fetch();
                 $paidQuery = $pdo->prepare('SELECT COALESCE(SUM(amount), 0) FROM fee_payments WHERE invoice_id = ?');
                 $paidQuery->execute([$invoiceId]);
                 $paidCents = (int) round((float) $paidQuery->fetchColumn() * 100);
-                $invoiceCents = $invoiceAmount === false ? 0 : (int) round((float) $invoiceAmount * 100);
+                $invoiceCents = $invoice === false ? 0 : (int) round((float) $invoice['amount'] * 100);
                 $amountCents = $amount === false ? 0 : (int) round($amount * 100);
-                if ($invoiceAmount === false || $amount === false || $amountCents <= 0 || $amountCents > ($invoiceCents - $paidCents) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $paymentDate)) {
+                if ($invoice === false || $amount === false || $amountCents <= 0 || $amountCents > ($invoiceCents - $paidCents) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $paymentDate)) {
                     $pdo->rollBack();
                     flash('Enter a valid payment that does not exceed the outstanding balance.', 'error');
                     break;
@@ -830,28 +1211,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $status = ($paidCents + $amountCents) >= $invoiceCents ? 'paid' : 'partial';
                 $update = $pdo->prepare('UPDATE fee_invoices SET status = ? WHERE id = ? AND school_id = ?');
                 $update->execute([$status, $invoiceId, $user['school_id']]);
+                $studentName = $invoice['first_name'] . ' ' . $invoice['last_name'];
+                $remainingCents = max(0, $invoiceCents - $paidCents - $amountCents);
+                $balanceQuery = $pdo->prepare(
+                    'SELECT COALESCE(SUM(i.amount - COALESCE(payments.paid, 0)), 0)
+                     FROM fee_invoices i
+                     LEFT JOIN (
+                         SELECT invoice_id, SUM(amount) AS paid FROM fee_payments GROUP BY invoice_id
+                     ) payments ON payments.invoice_id = i.id
+                     WHERE i.school_id = ? AND i.student_id = ?'
+                );
+                $balanceQuery->execute([$user['school_id'], $invoice['student_id']]);
+                $totalBalance = (float) $balanceQuery->fetchColumn();
+                $paymentNotice = t('A payment has been recorded for {{student}}.', ['{{student}}' => $studentName]) . "\n"
+                    . t('Fee description: {{description}}', ['{{description}}' => $invoice['description']]) . "\n"
+                    . t('Payment received: {{amount}} RWF', ['{{amount}}' => number_format($amountCents / 100, 2)]) . "\n"
+                    . t('Total paid: {{amount}} RWF', ['{{amount}}' => number_format(($paidCents + $amountCents) / 100, 2)]) . "\n"
+                    . t('Remaining balance on this invoice: {{amount}} RWF', ['{{amount}}' => number_format($remainingCents / 100, 2)]) . "\n"
+                    . t('Total outstanding balance: {{amount}} RWF', ['{{amount}}' => number_format($totalBalance, 2)]);
+                $queuedCount = queue_parent_fee_notice(
+                    $pdo,
+                    (int) $user['school_id'],
+                    (int) $invoice['student_id'],
+                    t('Fee payment recorded: {{student}}', ['{{student}}' => $studentName]),
+                    $paymentNotice,
+                    $invoiceId
+                );
                 $pdo->commit();
-                flash('Payment recorded.');
+                flash(t('Payment recorded. Parent notification(s) queued: {{count}}.', ['{{count}}' => (string) $queuedCount]));
                 break;
 
             case 'create_announcement':
                 $title = trim((string) ($_POST['title'] ?? ''));
                 $message = trim((string) ($_POST['message'] ?? ''));
                 $channels = $_POST['channels'] ?? [];
+                $audience = (string) ($_POST['audience'] ?? 'all_parents');
                 $allowedChannels = ['sms', 'email', 'app'];
-                if ($title === '' || $message === '' || !is_array($channels) || count(array_filter($channels, 'is_string')) !== count($channels) || array_diff($channels, $allowedChannels) !== [] || $channels === []) {
+                if ($title === '' || $message === '' || !in_array($audience, ['all_parents', 'all_students'], true) || !is_array($channels) || count(array_filter($channels, 'is_string')) !== count($channels) || array_diff($channels, $allowedChannels) !== [] || $channels === []) {
                     flash('Enter an announcement and choose at least one delivery channel.', 'error');
                     break;
                 }
+                $newAnnouncementPdf = store_announcement_pdf($_FILES['announcement_pdf'] ?? []);
                 $pdo->beginTransaction();
-                $announcement = $pdo->prepare('INSERT INTO announcements (school_id, author_id, title, message, channels, audience) VALUES (?, ?, ?, ?, ?, ?)');
-                $announcement->execute([$user['school_id'], $user['id'], $title, $message, json_encode(array_values(array_unique($channels)), JSON_THROW_ON_ERROR), 'all_parents']);
+                $announcement = $pdo->prepare('INSERT INTO announcements (school_id, author_id, title, message, channels, audience, attachment_path) VALUES (?, ?, ?, ?, ?, ?, ?)');
+                $announcement->execute([$user['school_id'], $user['id'], $title, $message, json_encode(array_values(array_unique($channels)), JSON_THROW_ON_ERROR), $audience, $newAnnouncementPdf]);
                 $announcementId = (int) $pdo->lastInsertId();
-                $contacts = $pdo->prepare(
-                    'SELECT DISTINCT g.id, g.email, g.phone FROM guardians g
-                     JOIN student_guardians sg ON sg.guardian_id = g.id
-                     WHERE g.school_id = ?'
-                );
+                $contacts = $audience === 'all_students'
+                    ? $pdo->prepare(
+                        'SELECT DISTINCT u.id, u.email, u.phone FROM students s
+                         JOIN users u ON u.id = s.user_id AND u.school_id = s.school_id
+                         WHERE s.school_id = ? AND s.status = "active" AND u.is_active = 1'
+                    )
+                    : $pdo->prepare(
+                        'SELECT DISTINCT g.id, g.email, g.phone FROM guardians g
+                         JOIN student_guardians sg ON sg.guardian_id = g.id
+                         WHERE g.school_id = ?'
+                    );
                 $contacts->execute([$user['school_id']]);
                 $recipients = $contacts->fetchAll();
                 $queue = $pdo->prepare('INSERT INTO notification_outbox (school_id, announcement_id, channel, recipient, message) VALUES (?, ?, ?, ?, ?)');
@@ -861,7 +1276,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $destination = match ($channel) {
                             'sms' => $recipient['phone'],
                             'email' => $recipient['email'],
-                            'app' => 'guardian:' . $recipient['id'],
+                            'app' => ($audience === 'all_students' ? 'student:' : 'guardian:') . $recipient['id'],
                         };
                         if ($destination !== null && $destination !== '') {
                             $queue->execute([$user['school_id'], $announcementId, $channel, $destination, $message]);
@@ -870,7 +1285,84 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
                 $pdo->commit();
+                $newAnnouncementPdf = null;
                 flash(t('Announcement saved; {{count}} notification(s) queued. Run the email outbox worker for email; other channels need their own integrations.', ['{{count}}' => (string) $queuedCount]));
+                break;
+
+            case 'update_announcement':
+                require_admin();
+                $announcementId = filter_var($_POST['announcement_id'] ?? null, FILTER_VALIDATE_INT);
+                $title = trim((string) ($_POST['title'] ?? ''));
+                $message = trim((string) ($_POST['message'] ?? ''));
+                if ($announcementId === false || $announcementId === null || $announcementId < 1
+                    || $title === '' || strlen($title) > 180 || $message === '') {
+                    flash('Enter an announcement title and message.', 'error');
+                    break;
+                }
+                $pdo->beginTransaction();
+                $announcementCheck = $pdo->prepare('SELECT attachment_path FROM announcements WHERE id = ? AND school_id = ? FOR UPDATE');
+                $announcementCheck->execute([$announcementId, $user['school_id']]);
+                $announcement = $announcementCheck->fetch();
+                if (!$announcement) {
+                    $pdo->rollBack();
+                    flash('The announcement could not be found in this school.', 'error');
+                    break;
+                }
+                $oldAnnouncementPdf = $announcement['attachment_path'];
+                $newAnnouncementPdf = store_announcement_pdf($_FILES['announcement_pdf'] ?? []);
+                $attachmentPath = $newAnnouncementPdf
+                    ?? (!empty($_POST['remove_attachment']) ? null : $oldAnnouncementPdf);
+                $updateAnnouncement = $pdo->prepare(
+                    'UPDATE announcements SET title = ?, message = ?, attachment_path = ?
+                     WHERE id = ? AND school_id = ?'
+                );
+                $updateAnnouncement->execute([
+                    $title,
+                    $message,
+                    $attachmentPath,
+                    $announcementId,
+                    $user['school_id'],
+                ]);
+                $updateQueuedMessages = $pdo->prepare(
+                    'UPDATE notification_outbox SET message = ? WHERE announcement_id = ? AND school_id = ? AND status = "queued"'
+                );
+                $updateQueuedMessages->execute([$message, $announcementId, $user['school_id']]);
+                $pdo->commit();
+                if ($oldAnnouncementPdf !== null && $attachmentPath !== $oldAnnouncementPdf) {
+                    delete_announcement_pdf((string) $oldAnnouncementPdf);
+                }
+                $newAnnouncementPdf = null;
+                $oldAnnouncementPdf = null;
+                flash('Announcement updated. Pending notifications use the updated message.');
+                break;
+
+            case 'delete_announcement':
+                require_admin();
+                $announcementId = filter_var($_POST['announcement_id'] ?? null, FILTER_VALIDATE_INT);
+                if ($announcementId === false || $announcementId === null || $announcementId < 1) {
+                    flash('The announcement could not be found in this school.', 'error');
+                    break;
+                }
+                $pdo->beginTransaction();
+                $announcementCheck = $pdo->prepare('SELECT attachment_path FROM announcements WHERE id = ? AND school_id = ? FOR UPDATE');
+                $announcementCheck->execute([$announcementId, $user['school_id']]);
+                $announcement = $announcementCheck->fetch();
+                if (!$announcement) {
+                    $pdo->rollBack();
+                    flash('The announcement could not be found in this school.', 'error');
+                    break;
+                }
+                $oldAnnouncementPdf = $announcement['attachment_path'];
+                $cancelQueued = $pdo->prepare(
+                    'DELETE FROM notification_outbox WHERE announcement_id = ? AND school_id = ? AND status = "queued"'
+                );
+                $cancelQueued->execute([$announcementId, $user['school_id']]);
+                $deleteAnnouncement = $pdo->prepare('DELETE FROM announcements WHERE id = ? AND school_id = ?');
+                $deleteAnnouncement->execute([$announcementId, $user['school_id']]);
+                $pdo->commit();
+                delete_announcement_pdf($oldAnnouncementPdf === null ? null : (string) $oldAnnouncementPdf);
+                $oldAnnouncementPdf = null;
+                flash('Announcement deleted and pending notifications cancelled.');
                 break;
 
             default:
@@ -881,6 +1373,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->rollBack();
         }
         delete_profile_picture($newProfilePicture);
+        delete_announcement_pdf($newAnnouncementPdf);
+        $newAnnouncementPdf = null;
         error_log('School management action failed: ' . $exception->getMessage());
         $message = $exception->getCode() === '23000'
             ? 'That record already exists or conflicts with another record.'
@@ -891,16 +1385,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->rollBack();
         }
         delete_profile_picture($newProfilePicture);
+        delete_announcement_pdf($newAnnouncementPdf);
+        $newAnnouncementPdf = null;
         flash($exception->getMessage(), 'error');
     } catch (JsonException $exception) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
+        delete_announcement_pdf($newAnnouncementPdf);
+        $newAnnouncementPdf = null;
         error_log('Announcement encoding failed: ' . $exception->getMessage());
         flash('The announcement could not be saved.', 'error');
     }
 
-    redirect('index.php?page=' . rawurlencode($returnPage));
+    redirect('index.php?page=' . rawurlencode($returnPage) . $returnQuery);
 }
 
 [$title, $file] = $pages[$page];
